@@ -336,20 +336,33 @@
   }
 
   /* ---------------- INICIALIZAÇÃO ---------------- */
+  function showFatalError(err) {
+    console.error("Falha ao iniciar o EntregaMix:", err);
+    document.getElementById("app").innerHTML = `
+      <div style="padding:24px; font-family:Inter,sans-serif;">
+        <h2 style="color:#D6202A;">Não foi possível carregar o app</h2>
+        <p style="color:#6B6B6B; font-size:14px;">Detalhe técnico (mostre isso para quem for te ajudar a corrigir):</p>
+        <pre style="background:#F7F7F7; padding:12px; border-radius:8px; font-size:12px; white-space:pre-wrap; word-break:break-word;">${(err && err.message) || err}</pre>
+        <p style="color:#6B6B6B; font-size:13px;">Causas mais comuns: a URL ou a chave anon em js/config.js estão erradas ou incompletas, ou a tabela "restaurants" ainda não existe no Supabase.</p>
+      </div>`;
+  }
+
   async function init() {
-    updateAuthUI();
-    await loadRestaurants();
-    const session = await window.DB.getSession();
-    if (session) {
-      currentUser = session.user;
-      await loadOrders();
-      showScreen("home");
-    } else {
+    try {
+      updateAuthUI();
+      await loadRestaurants();
+      const session = await window.DB.getSession();
+      if (session) {
+        currentUser = session.user;
+        await loadOrders();
+      }
       showScreen("home"); // navegar sem login é permitido; login só é pedido no checkout/pedidos/conta
+      window.DB.onAuthChange((user) => {
+        currentUser = user;
+      });
+    } catch (err) {
+      showFatalError(err);
     }
-    window.DB.onAuthChange((user) => {
-      currentUser = user;
-    });
   }
 
   init();

@@ -73,12 +73,18 @@
 
   <!-- Bloqueio de acesso caso não esteja logado -->
   <div class="login-gate" id="loginGate">
-    <h2>Entre para acessar seu dashboard</h2>
+    <h2 id="gateTitle">Entre para acessar seu dashboard</h2>
     <form id="loginForm">
+      <div class="field" id="gateFieldName" style="display:none;"><label>Nome</label><input type="text" id="gateName" /></div>
+      <div class="field" id="gateFieldPhone" style="display:none;"><label>Telefone</label><input type="tel" id="gatePhone" /></div>
       <div class="field"><label>E-mail</label><input type="email" id="gateEmail" required /></div>
-      <div class="field"><label>Senha</label><input type="password" id="gatePassword" required /></div>
-      <button class="primary-btn" type="submit">Entrar</button>
+      <div class="field"><label>Senha</label><input type="password" id="gatePassword" required minlength="6" /></div>
+      <button class="primary-btn" type="submit" id="gateSubmit">Entrar</button>
     </form>
+    <p class="save-msg" id="gateError" style="display:none; color:var(--red-dark);"></p>
+    <p style="font-size:14px; color:var(--ink-soft); margin-top:16px;">
+      <span id="gateSwitchText">Ainda não tem conta?</span> <a href="#" id="gateSwitchLink" style="color:var(--green); font-weight:600; text-decoration:none;">Criar conta</a>
+    </p>
   </div>
 
   <div class="content" id="dashboardContent" style="display:none;">

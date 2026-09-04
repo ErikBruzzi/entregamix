@@ -10,10 +10,28 @@
     cancelado: "Cancelado",
   };
 
+  let gateMode = "signin";
+
   function showDashboard() {
     $("loginGate").style.display = "none";
     $("dashboardContent").style.display = "block";
   }
+
+  function updateGateUI() {
+    $("gateTitle").textContent = gateMode === "signin" ? "Entre para acessar seu dashboard" : "Crie sua conta";
+    $("gateSubmit").textContent = gateMode === "signin" ? "Entrar" : "Criar conta";
+    $("gateFieldName").style.display = gateMode === "signup" ? "block" : "none";
+    $("gateFieldPhone").style.display = gateMode === "signup" ? "block" : "none";
+    $("gateSwitchText").textContent = gateMode === "signin" ? "Ainda não tem conta?" : "Já tem uma conta?";
+    $("gateSwitchLink").textContent = gateMode === "signin" ? "Criar conta" : "Entrar";
+    $("gateError").style.display = "none";
+  }
+
+  $("gateSwitchLink").addEventListener("click", (e) => {
+    e.preventDefault();
+    gateMode = gateMode === "signin" ? "signup" : "signin";
+    updateGateUI();
+  });
 
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -28,14 +46,24 @@
     e.preventDefault();
     const email = $("gateEmail").value.trim();
     const password = $("gatePassword").value;
+    const errBox = $("gateError");
+    errBox.style.display = "none";
     try {
-      const { user } = await window.DB.signIn({ email, password });
+      let user;
+      if (gateMode === "signup") {
+        const name = $("gateName").value.trim();
+        const phone = $("gatePhone").value.trim();
+        ({ user } = await window.DB.signUp({ name, email, phone, password }));
+      } else {
+        ({ user } = await window.DB.signIn({ email, password }));
+      }
       currentUser = user;
       await loadAccount();
       await loadOrders();
       showDashboard();
     } catch (err) {
-      alert("Não foi possível entrar: " + (err.message || err));
+      errBox.textContent = "Não foi possível continuar: " + ((err && err.message) || err);
+      errBox.style.display = "block";
     }
   });
 
@@ -101,6 +129,7 @@
   }
 
   async function init() {
+    updateGateUI();
     const session = await window.DB.getSession();
     if (session) {
       currentUser = session.user;
