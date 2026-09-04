@@ -98,3 +98,35 @@ create policy "qualquer um lê o cardápio" on menu_items
 insert into restaurants (name, category, eta_minutes, delivery_fee) values
   ('Sabor da Vila', 'Brasileira', 35, 6.90),
   ('Pizzaria Bella', 'Pizzas', 40, 8.50);
+
+-- ============================================================
+-- CRIAÇÃO AUTOMÁTICA DE PERFIL
+-- Sem isto, se o e-mail de confirmação estiver ativo, a tentativa do app
+-- de criar a linha em "profiles" durante o cadastro pode ser bloqueada
+-- (ainda não existe sessão ativa nesse momento). Este gatilho roda dentro
+-- do próprio banco, com privilégio elevado, e cria o perfil de forma
+-- confiável assim que a conta é criada — antes mesmo da confirmação do e-mail.
+-- ============================================================
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, name, email, phone)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', ''),
+    new.email,
+    coalesce(new.raw_user_meta_data->>'phone', '')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();

@@ -55,16 +55,14 @@
 
     return {
       async signUp({ name, email, phone, password }) {
-        const { data, error } = await client.auth.signUp({ email, password });
+        const { data, error } = await client.auth.signUp({
+          email,
+          password,
+          options: { data: { name, phone } },
+        });
         if (error) throw error;
-        if (data.user) {
-          await client.from("profiles").insert({
-            id: data.user.id,
-            name,
-            phone,
-            email,
-          });
-        }
+        // O perfil é criado automaticamente pelo gatilho handle_new_user no banco
+        // (veja supabase-schema.sql), então funciona mesmo antes da confirmação de e-mail.
         return { user: data.user };
       },
 
@@ -171,9 +169,21 @@
           .from("profiles")
           .select("name, email, phone, address")
           .eq("id", userId)
-          .single();
+          .maybeSingle();
         if (error) throw error;
-        return data;
+        if (data) return data;
+
+        // Login existente sem perfil correspondente (ex.: criado antes do
+        // gatilho automático). Cria o perfil agora, já com sessão ativa.
+        const { data: authData } = await client.auth.getUser();
+        const email = authData && authData.user ? authData.user.email : "";
+        const { data: created, error: createError } = await client
+          .from("profiles")
+          .insert({ id: userId, name: "", email, phone: "", address: "" })
+          .select()
+          .single();
+        if (createError) throw createError;
+        return created;
       },
 
       async updateProfile(userId, updates) {
