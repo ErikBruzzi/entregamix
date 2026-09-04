@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>EntregaMix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red: #D6202A;
+    --red-dark: #A81620;
+    --green: #167A46;
+    --green-dark: #0F5C34;
+    --ink: #171717;
+    --ink-soft: #6B6B6B;
+    --line: #ECECEC;
+    --bg: #FFFFFF;
+    --surface: #F7F7F7;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent;
+  }
+  h1, h2, h3, .brand { font-family: 'Sora', sans-serif; }
+  button { font-family: inherit; cursor: pointer; border: none; }
+  input, textarea { font-family: inherit; }
+
+  #app { max-width: 480px; margin: 0 auto; min-height: 100vh; position: relative; padding-bottom: 84px; }
+
+  /* Barra superior com as três faixas da identidade visual */
+  .topbar {
+    background: var(--ink); color: #fff;
+    padding: 18px 20px 16px;
+    position: sticky; top: 0; z-index: 20;
+  }
+  .topbar-stripe { height: 4px; display: flex; margin: -18px -20px 14px; }
+  .topbar-stripe span { flex: 1; }
+  .topbar-stripe span:nth-child(1) { background: var(--red); }
+  .topbar-stripe span:nth-child(2) { background: #fff; }
+  .topbar-stripe span:nth-child(3) { background: var(--green); }
+  .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+  .brand span { color: var(--green); }
+  .topbar-sub { font-size: 13px; color: #cfcfcf; margin-top: 2px; }
+
+  .screen { display: none; padding: 20px; animation: fade .2s ease; }
+  .screen.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* Busca */
+  .search {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border-radius: 12px; padding: 12px 14px;
+    margin-bottom: 18px; border: 1px solid var(--line);
+  }
+  .search input { flex: 1; border: none; background: transparent; outline: none; font-size: 15px; }
+
+  .section-title { font-size: 17px; font-weight: 700; margin: 4px 0 12px; }
+
+  /* Cards de restaurante */
+  .restaurant-card {
+    display: flex; gap: 14px; align-items: center;
+    background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px; margin-bottom: 12px;
+  }
+  .restaurant-thumb {
+    width: 56px; height: 56px; border-radius: 12px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 18px; color: #fff;
+  }
+  .restaurant-info { flex: 1; min-width: 0; }
+  .restaurant-info .name { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+  .restaurant-info .meta { font-size: 13px; color: var(--ink-soft); }
+  .chip { display: inline-block; background: var(--surface); border-radius: 20px; padding: 3px 10px; font-size: 12px; color: var(--ink-soft); margin-right: 6px; }
+
+  /* Menu de item */
+  .menu-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--line);
+  }
+  .menu-item .info { flex: 1; }
+  .menu-item .info .name { font-weight: 600; font-size: 15px; }
+  .menu-item .info .desc { font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
+  .menu-item .price { font-weight: 700; font-size: 14px; color: var(--ink); white-space: nowrap; }
+  .add-btn {
+    width: 32px; height: 32px; border-radius: 50%; background: var(--green);
+    color: #fff; font-size: 18px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .back-btn {
+    background: none; color: var(--ink); font-weight: 600; font-size: 14px;
+    padding: 0 0 14px; display: flex; align-items: center; gap: 6px;
+  }
+
+  /* Carrinho */
+  .cart-line { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .qty-control { display: flex; align-items: center; gap: 10px; }
+  .qty-control button { width: 26px; height: 26px; border-radius: 8px; background: var(--surface); font-weight: 700; }
+  .totals-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; color: var(--ink-soft); }
+  .totals-row.grand { color: var(--ink); font-weight: 700; font-size: 16px; padding-top: 12px; border-top: 1px solid var(--line); margin-top: 6px; }
+  .primary-btn {
+    width: 100%; background: var(--red); color: #fff; padding: 15px; border-radius: 12px;
+    font-weight: 700; font-size: 15px; margin-top: 18px;
+  }
+  .primary-btn:disabled { background: #E7A9AC; }
+  .primary-btn.green { background: var(--green); }
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--ink-soft); }
+
+  /* Pedidos */
+  .order-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+  .order-card .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .status-badge { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+  .status-recebido { background: #FFF1D6; color: #A66B00; }
+  .status-preparando { background: #FFE3D6; color: var(--red-dark); }
+  .status-a_caminho { background: #DCE9FF; color: #1B4FA8; }
+  .status-entregue { background: #DFF3E7; color: var(--green-dark); }
+
+  /* Auth */
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--ink-soft); }
+  .field input {
+    width: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px;
+    font-size: 15px; outline: none;
+  }
+  .field input:focus { border-color: var(--green); }
+  .switch-mode { text-align: center; font-size: 14px; color: var(--ink-soft); margin-top: 16px; }
+  .switch-mode a { color: var(--green); font-weight: 600; text-decoration: none; }
+
+  /* Navegação inferior */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 100%; max-width: 480px; background: #fff; border-top: 1px solid var(--line);
+    display: flex; z-index: 30; padding-bottom: env(safe-area-inset-bottom);
+  }
+  .nav-btn {
+    flex: 1; background: none; padding: 12px 0 10px; display: flex; flex-direction: column;
+    align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--ink-soft);
+    position: relative;
+  }
+  .nav-btn.active { color: var(--red); }
+  .nav-icon { font-size: 20px; }
+  .cart-badge {
+    position: absolute; top: 4px; right: 26%; background: var(--red); color: #fff;
+    font-size: 10px; font-weight: 700; border-radius: 20px; min-width: 16px; height: 16px;
+    display: flex; align-items: center; justify-content: center; padding: 0 3px;
+  }
+  a.dashboard-link { display: inline-block; margin-top: 18px; font-size: 13px; color: var(--ink-soft); text-decoration: underline; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar" id="topbar">
+    <div class="topbar-stripe"><span></span><span></span><span></span></div>
+    <div class="brand">Entrega<span>Mix</span></div>
+    <div class="topbar-sub" id="topbarSub">Comida boa, perto de você</div>
+  </div>
+
+  <!-- TELA: LOGIN / CADASTRO -->
+  <section class="screen" id="screen-auth">
+    <h2 id="authTitle" style="margin-top:4px;">Entrar na sua conta</h2>
+    <form id="authForm">
+      <div class="field" id="fieldName" style="display:none;">
+        <label>Nome</label>
+        <input type="text" id="authName" placeholder="Seu nome completo" />
+      </div>
+      <div class="field" id="fieldPhone" style="display:none;">
+        <label>Telefone</label>
+        <input type="tel" id="authPhone" placeholder="(00) 00000-0000" />
+      </div>
+      <div class="field">
+        <label>E-mail</label>
+        <input type="email" id="authEmail" placeholder="voce@email.com" required />
+      </div>
+      <div class="field">
+        <label>Senha</label>
+        <input type="password" id="authPassword" placeholder="••••••••" required minlength="6" />
+      </div>
+      <button type="submit" class="primary-btn" id="authSubmit">Entrar</button>
+    </form>
+    <p class="switch-mode" id="switchModeText">
+      Ainda não tem conta? <a href="#" id="switchModeLink">Criar conta</a>
+    </p>
+  </section>
+
+  <!-- TELA: INÍCIO / RESTAURANTES -->
+  <section class="screen" id="screen-home">
+    <div class="search">
+      🔎 <input type="text" id="searchInput" placeholder="Buscar restaurante ou tipo de comida" />
+    </div>
+    <div class="section-title">Restaurantes perto de você</div>
+    <div id="restaurantList"></div>
+  </section>
+
+  <!-- TELA: CARDÁPIO DE UM RESTAURANTE -->
+  <section class="screen" id="screen-menu">
+    <button class="back-btn" data-go="home">← Voltar</button>
+    <h2 id="menuRestaurantName" style="margin:0 0 4px;"></h2>
+    <p style="color:var(--ink-soft); font-size:13px; margin-top:0;" id="menuRestaurantMeta"></p>
+    <div id="menuList"></div>
+  </section>
+
+  <!-- TELA: CARRINHO -->
+  <section class="screen" id="screen-cart">
+    <div class="section-title">Seu carrinho</div>
+    <div id="cartContent"></div>
+  </section>
+
+  <!-- TELA: ENDEREÇO / CHECKOUT -->
+  <section class="screen" id="screen-checkout">
+    <button class="back-btn" data-go="cart">← Voltar ao carrinho</button>
+    <div class="section-title">Endereço de entrega</div>
+    <div class="field">
+      <label>Endereço completo</label>
+      <input type="text" id="checkoutAddress" placeholder="Rua, número, bairro, cidade" required />
+    </div>
+    <div class="totals-row grand"><span>Total do pedido</span><span id="checkoutTotal">R$ 0,00</span></div>
+    <button class="primary-btn green" id="confirmOrderBtn">Confirmar pedido</button>
+  </section>
+
+  <!-- TELA: PEDIDOS -->
+  <section class="screen" id="screen-orders">
+    <div class="section-title">Seus pedidos</div>
+    <div id="ordersList"></div>
+  </section>
+
+  <!-- TELA: CONTA -->
+  <section class="screen" id="screen-account">
+    <div class="section-title">Sua conta</div>
+    <div id="accountSummary" style="margin-bottom:18px;"></div>
+    <a class="dashboard-link" href="dashboard.html">Abrir configurações completas e histórico →</a>
+    <button class="primary-btn" style="background:var(--ink); margin-top:24px;" id="logoutBtn">Sair da conta</button>
+  </section>
+
+</div>
+
+<nav class="bottom-nav" id="bottomNav">
+  <button class="nav-btn" data-go="home"><span class="nav-icon">🍽️</span>Início</button>
+  <button class="nav-btn" data-go="orders"><span class="nav-icon">📦</span>Pedidos</button>
+  <button class="nav-btn" data-go="cart"><span class="nav-icon">🛒</span>Carrinho
+    <span class="cart-badge" id="cartBadge" style="display:none;">0</span>
+  </button>
+  <button class="nav-btn" data-go="account"><span class="nav-icon">👤</span>Conta</button>
+</nav>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/db-adapter.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
