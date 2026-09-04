@@ -21,6 +21,6 @@
 */
 
 window.APP_CONFIG = {
-  SUPABASE_URL: "https://supabase.com/dashboard/project/mmbbkryjddfklzepqqeq",
+  SUPABASE_URL: "https://mmbbkryjddfklzepqqeq.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_xWWzFBzAiAA9OSnd7T4gHg_s3HWK4UV",
 };
