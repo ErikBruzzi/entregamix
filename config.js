@@ -22,5 +22,5 @@
 
 window.APP_CONFIG = {
   SUPABASE_URL: "https://mmbbkryjddfklzepqqeq.supabase.co",
-  SUPABASE_ANON_KEY: "sb_publishable_xWWzFBzAiAA9OSnd7T4gHg_s3HWK4UV",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1tYmJrcnlqZGRma2x6ZXBxcWVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MjIzMzgsImV4cCI6MjEwMjI5ODMzOH0.tNbFXIXrlpLkgA6JBXgIFYYFNM73lt_ikCqeWKYptFc",
 };
