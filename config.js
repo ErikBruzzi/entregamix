@@ -21,6 +21,6 @@
 */
 
 window.APP_CONFIG = {
-  SUPABASE_URL: "COLE_A_URL_DO_SEU_PROJETO_AQUI",
-  SUPABASE_ANON_KEY: "COLE_SUA_CHAVE_ANON_PUBLIC_AQUI",
+  SUPABASE_URL: "https://supabase.com/dashboard/project/mmbbkryjddfklzepqqeq",
+  SUPABASE_ANON_KEY: "sb_publishable_xWWzFBzAiAA9OSnd7T4gHg_s3HWK4UV",
 };
