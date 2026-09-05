@@ -165,6 +165,11 @@
       .map(
         (it) => `
       <div class="menu-item">
+        ${
+          it.imageUrl
+            ? `<img class="item-thumb" src="${it.imageUrl}" alt="${it.name}" />`
+            : `<div class="item-thumb-placeholder">🍽️</div>`
+        }
         <div class="info">
           <div class="name">${it.name}</div>
           ${it.description ? `<div class="desc">${it.description}</div>` : ""}

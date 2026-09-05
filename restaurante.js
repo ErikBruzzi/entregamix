@@ -122,10 +122,19 @@
         (it) => `
       <div class="menu-item-card" data-id="${it.id}">
         <div class="row">
-          <div>
-            <span class="name">${it.name}</span>
-            ${!it.available ? '<span class="badge-unavailable">Indisponível</span>' : ""}
-            ${it.description ? `<div class="desc">${it.description}</div>` : ""}
+          <div class="item-info-row">
+            ${
+              it.imageUrl
+                ? `<img class="item-thumb" src="${it.imageUrl}" alt="${it.name}" />`
+                : `<div class="item-thumb-placeholder">🍽️</div>`
+            }
+            <div>
+              <span class="name">${it.name}</span>
+              ${!it.available ? '<span class="badge-unavailable">Indisponível</span>' : ""}
+              ${it.description ? `<div class="desc">${it.description}</div>` : ""}
+              <div><button class="photo-btn" data-action="photo">Trocar foto</button></div>
+              <input type="file" accept="image/*" data-action="photo-input" style="display:none;" />
+            </div>
           </div>
           <div class="price">R$ ${Number(it.price).toFixed(2).replace(".", ",")}</div>
         </div>
@@ -158,6 +167,19 @@
         await window.DB.deleteMenuItem(id);
         loadMenu();
       });
+      const photoInput = card.querySelector('[data-action="photo-input"]');
+      card.querySelector('[data-action="photo"]').addEventListener("click", () => photoInput.click());
+      photoInput.addEventListener("change", async () => {
+        const file = photoInput.files[0];
+        if (!file) return;
+        try {
+          const imageUrl = await window.DB.uploadMenuImage(myRestaurant.id, file);
+          await window.DB.updateMenuItem(id, { imageUrl });
+          loadMenu();
+        } catch (err) {
+          alert("Não foi possível enviar a foto: " + ((err && err.message) || err));
+        }
+      });
     });
   }
 
@@ -165,12 +187,26 @@
     const name = $("newItemName").value.trim();
     const description = $("newItemDesc").value.trim();
     const price = parseFloat($("newItemPrice").value);
+    const file = $("newItemImage").files[0];
     if (!name || isNaN(price) || price < 0) return alert("Preencha o nome e um preço válido.");
-    await window.DB.createMenuItem(myRestaurant.id, { name, description, price });
-    $("newItemName").value = "";
-    $("newItemDesc").value = "";
-    $("newItemPrice").value = "";
-    loadMenu();
+    const btn = $("addItemBtn");
+    btn.disabled = true;
+    btn.textContent = file ? "Enviando foto..." : "Adicionando...";
+    try {
+      let imageUrl = null;
+      if (file) imageUrl = await window.DB.uploadMenuImage(myRestaurant.id, file);
+      await window.DB.createMenuItem(myRestaurant.id, { name, description, price, imageUrl });
+      $("newItemName").value = "";
+      $("newItemDesc").value = "";
+      $("newItemPrice").value = "";
+      $("newItemImage").value = "";
+      loadMenu();
+    } catch (err) {
+      alert("Não foi possível adicionar o prato: " + ((err && err.message) || err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Adicionar prato";
+    }
   });
 
   /* ---------------- PEDIDOS ---------------- */

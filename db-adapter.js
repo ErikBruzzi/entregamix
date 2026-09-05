@@ -17,17 +17,18 @@
 
     Cliente:
     - getRestaurants()                                 -> [{ id, name, category, etaMinutes, deliveryFee }]
-    - getMenu(restaurantId)                            -> [{ id, name, description, price }]
+    - getMenu(restaurantId)                            -> [{ id, name, description, price, imageUrl }]
     - createOrder({ restaurantId, items, address, total }) -> { order }
     - getOrders(userId)                                -> [{ id, restaurantName, status, total, createdAt, items, courierId }]
 
     Restaurante (dono):
     - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryFee, active }
     - updateMyRestaurant(restaurantId, data)           -> { restaurant }
-    - getMyMenu(restaurantId)                          -> [{ id, name, description, price, available }]
-    - createMenuItem(restaurantId, data)               -> { item }
+    - getMyMenu(restaurantId)                          -> [{ id, name, description, price, available, imageUrl }]
+    - createMenuItem(restaurantId, data)               -> { item }  (data pode incluir imageUrl)
     - updateMenuItem(itemId, data)                     -> { item }
     - deleteMenuItem(itemId)                           -> void
+    - uploadMenuImage(restaurantId, file)              -> url (string) — envie o resultado como imageUrl
     - getRestaurantOrders(restaurantId)                -> [{ id, status, total, createdAt, address, courierId, pickupCode, items }]
     - updateOrderStatus(orderId, status)               -> void
 
@@ -159,11 +160,17 @@
       async getMenu(restaurantId) {
         const { data, error } = await client
           .from("menu_items")
-          .select("id, name, description, price")
+          .select("id, name, description, price, image_url")
           .eq("restaurant_id", restaurantId)
           .eq("available", true);
         if (error) throw error;
-        return data || [];
+        return (data || []).map((it) => ({
+          id: it.id,
+          name: it.name,
+          description: it.description,
+          price: it.price,
+          imageUrl: it.image_url,
+        }));
       },
 
       async createOrder({ restaurantId, items, address, total }) {
@@ -248,11 +255,18 @@
       async getMyMenu(restaurantId) {
         const { data, error } = await client
           .from("menu_items")
-          .select("id, name, description, price, available")
+          .select("id, name, description, price, available, image_url")
           .eq("restaurant_id", restaurantId)
           .order("created_at", { ascending: true });
         if (error) throw error;
-        return data || [];
+        return (data || []).map((it) => ({
+          id: it.id,
+          name: it.name,
+          description: it.description,
+          price: it.price,
+          available: it.available,
+          imageUrl: it.image_url,
+        }));
       },
 
       async createMenuItem(restaurantId, item) {
@@ -264,27 +278,45 @@
             description: item.description || "",
             price: item.price,
             available: item.available !== false,
+            image_url: item.imageUrl || null,
           })
           .select()
           .single();
         if (error) throw error;
-        return { item: data };
+        return { item: { ...data, imageUrl: data.image_url } };
       },
 
       async updateMenuItem(itemId, updates) {
+        const payload = { ...updates };
+        if (payload.imageUrl !== undefined) {
+          payload.image_url = payload.imageUrl;
+          delete payload.imageUrl;
+        }
         const { data, error } = await client
           .from("menu_items")
-          .update(updates)
+          .update(payload)
           .eq("id", itemId)
           .select()
           .single();
         if (error) throw error;
-        return { item: data };
+        return { item: { ...data, imageUrl: data.image_url } };
       },
 
       async deleteMenuItem(itemId) {
         const { error } = await client.from("menu_items").delete().eq("id", itemId);
         if (error) throw error;
+      },
+
+      async uploadMenuImage(restaurantId, file) {
+        const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+        const path = restaurantId + "/" + Date.now() + "." + ext;
+        const { error } = await client.storage.from("menu-images").upload(path, file, {
+          upsert: true,
+          cacheControl: "3600",
+        });
+        if (error) throw error;
+        const { data } = client.storage.from("menu-images").getPublicUrl(path);
+        return data.publicUrl;
       },
 
       async getRestaurantOrders(restaurantId) {
@@ -571,6 +603,15 @@
         for (const key in demoMenus) {
           demoMenus[key] = demoMenus[key].filter((m) => m.id !== itemId);
         }
+      },
+      async uploadMenuImage(_restaurantId, file) {
+        // Sem Storage real no modo demo: converte a imagem para uso local nesta aba.
+        return await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("Não foi possível ler a imagem."));
+          reader.readAsDataURL(file);
+        });
       },
       async getRestaurantOrders(restaurantId) {
         return orders.filter((o) => o.restaurantId === restaurantId);

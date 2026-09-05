@@ -40,9 +40,11 @@ create table if not exists menu_items (
   description text,
   price numeric(10,2) not null,
   available boolean default true,
+  image_url text,
   created_at timestamp with time zone default now()
 );
 alter table menu_items add column if not exists available boolean default true;
+alter table menu_items add column if not exists image_url text;
 
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
@@ -233,6 +235,54 @@ begin
     alter publication supabase_realtime add table messages;
   end if;
 end $$;
+
+-- ------------------------------------------------------------
+-- ARMAZENAMENTO DE IMAGENS DO CARDÁPIO
+-- Bucket público (qualquer um pode ver a foto do prato), mas só o dono
+-- do restaurante pode enviar/trocar/excluir fotos dele. A pasta de cada
+-- arquivo começa com o id do restaurante (ex.: "abc123/1699999999.jpg"),
+-- e é isso que a política usa para conferir o dono.
+-- ------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('menu-images', 'menu-images', true)
+on conflict (id) do nothing;
+
+drop policy if exists "leitura pública das imagens do cardápio" on storage.objects;
+create policy "leitura pública das imagens do cardápio" on storage.objects
+  for select using (bucket_id = 'menu-images');
+
+drop policy if exists "dono envia imagens do seu restaurante" on storage.objects;
+create policy "dono envia imagens do seu restaurante" on storage.objects
+  for insert with check (
+    bucket_id = 'menu-images'
+    and exists (
+      select 1 from restaurants r
+      where r.owner_id = auth.uid()
+        and r.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+drop policy if exists "dono atualiza imagens do seu restaurante" on storage.objects;
+create policy "dono atualiza imagens do seu restaurante" on storage.objects
+  for update using (
+    bucket_id = 'menu-images'
+    and exists (
+      select 1 from restaurants r
+      where r.owner_id = auth.uid()
+        and r.id::text = (storage.foldername(name))[1]
+    )
+  );
+
+drop policy if exists "dono exclui imagens do seu restaurante" on storage.objects;
+create policy "dono exclui imagens do seu restaurante" on storage.objects
+  for delete using (
+    bucket_id = 'menu-images'
+    and exists (
+      select 1 from restaurants r
+      where r.owner_id = auth.uid()
+        and r.id::text = (storage.foldername(name))[1]
+    )
+  );
 
 -- ------------------------------------------------------------
 -- CRIAÇÃO AUTOMÁTICA DE PERFIL (E RESTAURANTE, SE FOR O CASO)
