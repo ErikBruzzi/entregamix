@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>EntregaMix · Painel do entregador</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red:#D6202A; --red-dark:#A81620; --green:#167A46; --green-dark:#0F5C34;
+    --ink:#171717; --ink-soft:#6B6B6B; --line:#ECECEC; --bg:#FFFFFF; --surface:#F7F7F7; --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink); font-family:'Inter',sans-serif; }
+  h1,h2,h3,.brand { font-family:'Sora',sans-serif; }
+  button { font-family:inherit; cursor:pointer; border:none; }
+  input { font-family:inherit; }
+
+  #app { max-width:520px; margin:0 auto; min-height:100vh; padding-bottom:40px; }
+  .topbar { background:var(--ink); color:#fff; padding:18px 20px 16px; }
+  .topbar-stripe { height:4px; display:flex; margin:-18px -20px 14px; }
+  .topbar-stripe span { flex:1; }
+  .topbar-stripe span:nth-child(1){background:var(--red);}
+  .topbar-stripe span:nth-child(2){background:#fff;}
+  .topbar-stripe span:nth-child(3){background:var(--green);}
+  .brand { font-size:19px; font-weight:800; }
+  .brand span { color:var(--green); }
+  .topbar-sub { font-size:13px; color:#cfcfcf; margin-top:2px; }
+  a.back-link { color:#cfcfcf; font-size:13px; text-decoration:none; }
+
+  .content { padding:20px; }
+  .tabs { display:flex; gap:8px; margin-bottom:20px; border-bottom:1px solid var(--line); overflow-x:auto; }
+  .tab-btn { background:none; padding:10px 4px; font-weight:700; font-size:14px; color:var(--ink-soft); border-bottom:2px solid transparent; white-space:nowrap; }
+  .tab-btn.active { color:var(--ink); border-color:var(--green); }
+  .panel { display:none; }
+  .panel.active { display:block; animation:fade .2s ease; }
+  @keyframes fade { from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:var(--ink-soft); }
+  .field input { width:100%; padding:13px 14px; border:1px solid var(--line); border-radius:10px; font-size:15px; outline:none; }
+  .field input:focus { border-color:var(--green); }
+
+  .primary-btn { background:var(--red); color:#fff; padding:14px 22px; border-radius:12px; font-weight:700; font-size:14px; width:100%; }
+  .primary-btn.green { background:var(--green); }
+  .primary-btn.ink { background:var(--ink); }
+  .error-msg { font-size:13px; color:var(--red-dark); margin-top:10px; display:none; }
+
+  .delivery-card { border:1px solid var(--line); border-radius:var(--radius); padding:14px; margin-bottom:12px; }
+  .delivery-card .row { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .stop { display:flex; gap:10px; margin-bottom:8px; font-size:13px; }
+  .stop .dot { width:10px; height:10px; border-radius:50%; margin-top:4px; flex-shrink:0; }
+  .stop.pickup .dot { background:var(--red); }
+  .stop.dropoff .dot { background:var(--green); }
+  .stop .label { color:var(--ink-soft); font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+  .fee-tag { font-weight:700; font-size:15px; }
+  .status-badge { font-size:12px; font-weight:700; padding:4px 10px; border-radius:20px; }
+  .status-pronto{background:#EAE1FF;color:#5B34C9;}
+  .status-a_caminho{background:#DCE9FF;color:#1B4FA8;}
+  .status-entregue{background:#DFF3E7;color:var(--green-dark);}
+  .code-box {
+    background:var(--ink); color:#fff; border-radius:10px; padding:12px; text-align:center;
+    margin:10px 0; font-size:14px;
+  }
+  .code-box strong { font-size:22px; letter-spacing:.1em; display:block; margin-top:4px; }
+  .empty-state { text-align:center; padding:50px 20px; color:var(--ink-soft); }
+  .login-gate { padding:60px 20px; text-align:center; }
+  .login-gate .field { text-align:left; max-width:320px; margin:0 auto 14px; }
+  .profile-box { background:var(--surface); border-radius:12px; padding:16px; margin-bottom:20px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-stripe"><span></span><span></span><span></span></div>
+    <a class="back-link" href="index.html">← Voltar ao app</a>
+    <div class="brand" style="margin-top:6px;">Entrega<span>Mix</span> · Entregador</div>
+    <div class="topbar-sub">Aceite corridas e gerencie suas entregas</div>
+  </div>
+
+  <div class="login-gate" id="loginGate">
+    <h2 id="gateTitle">Entre na sua conta de entregador</h2>
+    <form id="loginForm">
+      <div class="field" id="gateFieldName" style="display:none;"><label>Nome completo</label><input type="text" id="gateName" /></div>
+      <div class="field" id="gateFieldPhone" style="display:none;"><label>Telefone</label><input type="tel" id="gatePhone" /></div>
+      <div class="field"><label>E-mail</label><input type="email" id="gateEmail" required /></div>
+      <div class="field"><label>Senha</label><input type="password" id="gatePassword" required minlength="6" /></div>
+      <button class="primary-btn" type="submit" id="gateSubmit">Entrar</button>
+    </form>
+    <p class="error-msg" id="gateError"></p>
+    <p style="font-size:14px; color:var(--ink-soft); margin-top:16px;">
+      <span id="gateSwitchText">Ainda não tem conta de entregador?</span> <a href="#" id="gateSwitchLink" style="color:var(--green); font-weight:600; text-decoration:none;">Criar conta</a>
+    </p>
+  </div>
+
+  <div class="content" id="dashboardContent" style="display:none;">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="available">Disponíveis</button>
+      <button class="tab-btn" data-tab="mine">Minhas entregas</button>
+      <button class="tab-btn" data-tab="account">Conta</button>
+    </div>
+
+    <div class="panel active" id="panel-available">
+      <div id="availableList"></div>
+    </div>
+
+    <div class="panel" id="panel-mine">
+      <div id="mineList"></div>
+    </div>
+
+    <div class="panel" id="panel-account">
+      <div class="profile-box" id="profileBox"></div>
+      <button class="primary-btn ink" id="logoutBtn">Sair da conta</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="db-adapter.js"></script>
+<script src="entregador.js"></script>
+</body>
+</html>

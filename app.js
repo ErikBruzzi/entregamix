@@ -49,6 +49,7 @@
     $("authTitle").textContent = authMode === "signin" ? "Entrar na sua conta" : "Criar sua conta";
     $("authSubmit").textContent = authMode === "signin" ? "Entrar" : "Criar conta";
     $("fieldName").style.display = authMode === "signup" ? "block" : "none";
+    $("fieldRole").style.display = authMode === "signup" ? "block" : "none";
     $("fieldPhone").style.display = authMode === "signup" ? "block" : "none";
     $("switchModeText").innerHTML =
       authMode === "signin"
@@ -77,13 +78,23 @@
       if (authMode === "signup") {
         const name = $("authName").value.trim();
         const phone = $("authPhone").value.trim();
-        const { user } = await window.DB.signUp({ name, email, phone, password });
+        const role = $("authRole").value;
+        const { user } = await window.DB.signUp({ name, email, phone, password, role });
         currentUser = user;
       } else {
         const { user } = await window.DB.signIn({ email, password });
         currentUser = user;
       }
       $("authForm").reset();
+      const profile = await window.DB.getProfile(currentUser.id);
+      if (profile.role === "restaurante") {
+        window.location.href = "restaurante.html";
+        return;
+      }
+      if (profile.role === "entregador") {
+        window.location.href = "entregador.html";
+        return;
+      }
       await loadOrders();
       showScreen("home");
     } catch (err) {
@@ -354,6 +365,9 @@
       const session = await window.DB.getSession();
       if (session) {
         currentUser = session.user;
+        const profile = await window.DB.getProfile(currentUser.id);
+        if (profile.role === "restaurante") return void (window.location.href = "restaurante.html");
+        if (profile.role === "entregador") return void (window.location.href = "entregador.html");
         await loadOrders();
       }
       showScreen("home"); // navegar sem login é permitido; login só é pedido no checkout/pedidos/conta

@@ -1,27 +1,42 @@
 /*
   CAMADA DE ACESSO A DADOS (DATA ACCESS LAYER)
   ---------------------------------------------
-  Esta é a ÚNICA parte do app que sabe que existe um banco de dados chamado
-  Supabase. O index.html e o dashboard.html nunca importam o Supabase
-  diretamente — eles só chamam window.DB.algumaFuncao(...).
-
-  Por quê isso importa: se um dia vocês quiserem trocar o Supabase por
-  outro banco (Firebase, um backend próprio, etc.), basta reescrever ESTE
-  arquivo mantendo os mesmos nomes de função e o mesmo formato de retorno.
-  Nenhuma outra parte do código precisa mudar.
+  Única parte do app que sabe que existe um banco chamado Supabase.
+  Para trocar de banco no futuro, reescreva este arquivo mantendo os
+  mesmos nomes de função e formatos de retorno.
 
   Contrato da interface window.DB (todas as funções são assíncronas):
-    - signUp({ name, email, phone, password })      -> { user }
-    - signIn({ email, password })                    -> { user }
-    - signOut()                                      -> void
-    - getSession()                                   -> { user } | null
-    - onAuthChange(callback)                         -> void (chama callback(user|null) quando o login muda)
-    - getRestaurants()                                -> [{ id, name, category, etaMinutes, deliveryFee }]
-    - getMenu(restaurantId)                           -> [{ id, name, description, price }]
+    Conta / sessão:
+    - signUp({ name, email, phone, password, role })  -> { user }
+    - signIn({ email, password })                      -> { user }
+    - signOut()                                        -> void
+    - getSession()                                     -> { user } | null
+    - onAuthChange(callback)                           -> void
+    - getProfile(userId)                               -> { name, email, phone, address, role }
+    - updateProfile(userId, data)                      -> { profile }
+
+    Cliente:
+    - getRestaurants()                                 -> [{ id, name, category, etaMinutes, deliveryFee }]
+    - getMenu(restaurantId)                            -> [{ id, name, description, price }]
     - createOrder({ restaurantId, items, address, total }) -> { order }
-    - getOrders(userId)                               -> [{ id, restaurantName, status, total, createdAt, items }]
-    - getProfile(userId)                              -> { name, email, phone, address }
-    - updateProfile(userId, data)                     -> { profile }
+    - getOrders(userId)                                -> [{ id, restaurantName, status, total, createdAt, items }]
+
+    Restaurante (dono):
+    - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryFee, active }
+    - updateMyRestaurant(restaurantId, data)           -> { restaurant }
+    - getMyMenu(restaurantId)                          -> [{ id, name, description, price, available }]
+    - createMenuItem(restaurantId, data)               -> { item }
+    - updateMenuItem(itemId, data)                     -> { item }
+    - deleteMenuItem(itemId)                           -> void
+    - getRestaurantOrders(restaurantId)                -> [{ id, status, total, createdAt, address, courierId, pickupCode, items }]
+    - updateOrderStatus(orderId, status)               -> void
+
+    Entregador:
+    - getAvailableDeliveries()                         -> [{ id, restaurantName, restaurantAddress, address, total, createdAt }]
+    - getMyDeliveries(courierId)                       -> [{ id, restaurantName, restaurantAddress, address, total, status, pickupCode, createdAt }]
+    - claimDelivery(orderId, courierId)                -> { order }  (lança erro se outro entregador já pegou)
+    - confirmPickup(orderId)                           -> void  (status -> a_caminho)
+    - confirmDelivery(orderId)                         -> void  (status -> entregue)
 */
 
 (function () {
@@ -32,45 +47,41 @@
     config.SUPABASE_ANON_KEY &&
     !config.SUPABASE_ANON_KEY.includes("COLE_SUA_CHAVE");
 
-  // Avisa visualmente na tela (barra fixa) quando o app está em modo demo.
   function showDemoBanner() {
     document.addEventListener("DOMContentLoaded", () => {
       const banner = document.createElement("div");
       banner.textContent =
-        "Modo demonstração: dados temporários, sem conexão com o Supabase. Configure js/config.js para ativar o banco de dados real.";
+        "Modo demonstração: dados temporários, sem conexão com o Supabase. Configure config.js para ativar o banco de dados real.";
       banner.style.cssText =
         "position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#171717;color:#fff;font:600 12px/1.4 Inter,sans-serif;text-align:center;padding:8px 12px;";
       document.body.appendChild(banner);
     });
   }
 
+  function genCode() {
+    return String(Math.floor(1000 + Math.random() * 9000));
+  }
+
   /* ---------------------------------------------------------------------
-     ADAPTADOR SUPABASE (usado quando js/config.js está preenchido)
+     ADAPTADOR SUPABASE
   --------------------------------------------------------------------- */
   function buildSupabaseAdapter() {
-    const client = window.supabase.createClient(
-      config.SUPABASE_URL,
-      config.SUPABASE_ANON_KEY
-    );
+    const client = window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
 
     return {
-      async signUp({ name, email, phone, password }) {
+      /* ---------- CONTA / SESSÃO ---------- */
+      async signUp({ name, email, phone, password, role }) {
         const { data, error } = await client.auth.signUp({
           email,
           password,
-          options: { data: { name, phone } },
+          options: { data: { name, phone, role: role || "cliente" } },
         });
         if (error) throw error;
-        // O perfil é criado automaticamente pelo gatilho handle_new_user no banco
-        // (veja supabase-schema.sql), então funciona mesmo antes da confirmação de e-mail.
         return { user: data.user };
       },
 
       async signIn({ email, password }) {
-        const { data, error } = await client.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const { data, error } = await client.auth.signInWithPassword({ email, password });
         if (error) throw error;
         return { user: data.user };
       },
@@ -90,6 +101,39 @@
         });
       },
 
+      async getProfile(userId) {
+        const { data, error } = await client
+          .from("profiles")
+          .select("name, email, phone, address, role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (error) throw error;
+        if (data) return data;
+
+        // Login sem perfil correspondente (ex.: criado antes do gatilho automático).
+        const { data: authData } = await client.auth.getUser();
+        const email = authData && authData.user ? authData.user.email : "";
+        const { data: created, error: createError } = await client
+          .from("profiles")
+          .insert({ id: userId, name: "", email, phone: "", address: "", role: "cliente" })
+          .select()
+          .single();
+        if (createError) throw createError;
+        return created;
+      },
+
+      async updateProfile(userId, updates) {
+        const { data, error } = await client
+          .from("profiles")
+          .update(updates)
+          .eq("id", userId)
+          .select()
+          .single();
+        if (error) throw error;
+        return { profile: data };
+      },
+
+      /* ---------- CLIENTE ---------- */
       async getRestaurants() {
         const { data, error } = await client
           .from("restaurants")
@@ -109,7 +153,8 @@
         const { data, error } = await client
           .from("menu_items")
           .select("id, name, description, price")
-          .eq("restaurant_id", restaurantId);
+          .eq("restaurant_id", restaurantId)
+          .eq("available", true);
         if (error) throw error;
         return data || [];
       },
@@ -119,13 +164,7 @@
         const userId = session ? session.user.id : null;
         const { data, error } = await client
           .from("orders")
-          .insert({
-            user_id: userId,
-            restaurant_id: restaurantId,
-            address,
-            total,
-            status: "recebido",
-          })
+          .insert({ user_id: userId, restaurant_id: restaurantId, address, total, status: "recebido" })
           .select()
           .single();
         if (error) throw error;
@@ -137,9 +176,7 @@
           price: it.price,
           quantity: it.quantity,
         }));
-        const { error: itemsError } = await client
-          .from("order_items")
-          .insert(orderItems);
+        const { error: itemsError } = await client.from("order_items").insert(orderItems);
         if (itemsError) throw itemsError;
 
         return { order: data };
@@ -148,9 +185,7 @@
       async getOrders(userId) {
         const { data, error } = await client
           .from("orders")
-          .select(
-            "id, status, total, created_at, restaurants(name), order_items(name, price, quantity)"
-          )
+          .select("id, status, total, created_at, restaurants(name), order_items(name, price, quantity)")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
         if (error) throw error;
@@ -164,85 +199,225 @@
         }));
       },
 
-      async getProfile(userId) {
+      /* ---------- RESTAURANTE (DONO) ---------- */
+      async getMyRestaurant(ownerId) {
         const { data, error } = await client
-          .from("profiles")
-          .select("name, email, phone, address")
-          .eq("id", userId)
+          .from("restaurants")
+          .select("id, name, category, address, eta_minutes, delivery_fee, active")
+          .eq("owner_id", ownerId)
           .maybeSingle();
         if (error) throw error;
-        if (data) return data;
-
-        // Login existente sem perfil correspondente (ex.: criado antes do
-        // gatilho automático). Cria o perfil agora, já com sessão ativa.
-        const { data: authData } = await client.auth.getUser();
-        const email = authData && authData.user ? authData.user.email : "";
-        const { data: created, error: createError } = await client
-          .from("profiles")
-          .insert({ id: userId, name: "", email, phone: "", address: "" })
-          .select()
-          .single();
-        if (createError) throw createError;
-        return created;
+        if (!data) return null;
+        return {
+          id: data.id,
+          name: data.name,
+          category: data.category,
+          address: data.address,
+          etaMinutes: data.eta_minutes,
+          deliveryFee: data.delivery_fee,
+          active: data.active,
+        };
       },
 
-      async updateProfile(userId, updates) {
+      async updateMyRestaurant(restaurantId, updates) {
+        const payload = {};
+        if (updates.name !== undefined) payload.name = updates.name;
+        if (updates.category !== undefined) payload.category = updates.category;
+        if (updates.address !== undefined) payload.address = updates.address;
+        if (updates.etaMinutes !== undefined) payload.eta_minutes = updates.etaMinutes;
+        if (updates.deliveryFee !== undefined) payload.delivery_fee = updates.deliveryFee;
+        if (updates.active !== undefined) payload.active = updates.active;
         const { data, error } = await client
-          .from("profiles")
-          .update(updates)
-          .eq("id", userId)
+          .from("restaurants")
+          .update(payload)
+          .eq("id", restaurantId)
           .select()
           .single();
         if (error) throw error;
-        return { profile: data };
+        return { restaurant: data };
+      },
+
+      async getMyMenu(restaurantId) {
+        const { data, error } = await client
+          .from("menu_items")
+          .select("id, name, description, price, available")
+          .eq("restaurant_id", restaurantId)
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        return data || [];
+      },
+
+      async createMenuItem(restaurantId, item) {
+        const { data, error } = await client
+          .from("menu_items")
+          .insert({
+            restaurant_id: restaurantId,
+            name: item.name,
+            description: item.description || "",
+            price: item.price,
+            available: item.available !== false,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        return { item: data };
+      },
+
+      async updateMenuItem(itemId, updates) {
+        const { data, error } = await client
+          .from("menu_items")
+          .update(updates)
+          .eq("id", itemId)
+          .select()
+          .single();
+        if (error) throw error;
+        return { item: data };
+      },
+
+      async deleteMenuItem(itemId) {
+        const { error } = await client.from("menu_items").delete().eq("id", itemId);
+        if (error) throw error;
+      },
+
+      async getRestaurantOrders(restaurantId) {
+        const { data, error } = await client
+          .from("orders")
+          .select("id, status, total, created_at, address, courier_id, pickup_code, order_items(name, price, quantity)")
+          .eq("restaurant_id", restaurantId)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        return (data || []).map((o) => ({
+          id: o.id,
+          status: o.status,
+          total: o.total,
+          createdAt: o.created_at,
+          address: o.address,
+          courierId: o.courier_id,
+          pickupCode: o.pickup_code,
+          items: o.order_items || [],
+        }));
+      },
+
+      async updateOrderStatus(orderId, status) {
+        const { error } = await client.from("orders").update({ status }).eq("id", orderId);
+        if (error) throw error;
+      },
+
+      /* ---------- ENTREGADOR ---------- */
+      async getAvailableDeliveries() {
+        const { data, error } = await client
+          .from("orders")
+          .select("id, total, created_at, address, restaurants(name, address)")
+          .eq("status", "pronto")
+          .is("courier_id", null)
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        return (data || []).map((o) => ({
+          id: o.id,
+          total: o.total,
+          createdAt: o.created_at,
+          address: o.address,
+          restaurantName: o.restaurants ? o.restaurants.name : "Restaurante",
+          restaurantAddress: o.restaurants ? o.restaurants.address : "",
+        }));
+      },
+
+      async getMyDeliveries(courierId) {
+        const { data, error } = await client
+          .from("orders")
+          .select("id, total, created_at, address, status, pickup_code, restaurants(name, address)")
+          .eq("courier_id", courierId)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        return (data || []).map((o) => ({
+          id: o.id,
+          total: o.total,
+          createdAt: o.created_at,
+          address: o.address,
+          status: o.status,
+          pickupCode: o.pickup_code,
+          restaurantName: o.restaurants ? o.restaurants.name : "Restaurante",
+          restaurantAddress: o.restaurants ? o.restaurants.address : "",
+        }));
+      },
+
+      async claimDelivery(orderId, courierId) {
+        const code = genCode();
+        const { data, error } = await client
+          .from("orders")
+          .update({ courier_id: courierId, pickup_code: code })
+          .eq("id", orderId)
+          .is("courier_id", null)
+          .select();
+        if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error("Este pedido já foi aceito por outro entregador.");
+        }
+        return { order: { id: data[0].id, pickupCode: data[0].pickup_code } };
+      },
+
+      async confirmPickup(orderId) {
+        const { error } = await client.from("orders").update({ status: "a_caminho" }).eq("id", orderId);
+        if (error) throw error;
+      },
+
+      async confirmDelivery(orderId) {
+        const { error } = await client.from("orders").update({ status: "entregue" }).eq("id", orderId);
+        if (error) throw error;
       },
     };
   }
 
   /* ---------------------------------------------------------------------
-     ADAPTADOR DEMO (memória local, sem persistência) — só para pré-visualizar
+     ADAPTADOR DEMO (memória local, sem persistência)
   --------------------------------------------------------------------- */
   function buildDemoAdapter() {
     const demoRestaurants = [
-      { id: "r1", name: "Sabor da Vila", category: "Brasileira", etaMinutes: 35, deliveryFee: 6.9 },
-      { id: "r2", name: "Pizzaria Bella", category: "Pizzas", etaMinutes: 40, deliveryFee: 8.5 },
-      { id: "r3", name: "Cantina do Mercado", category: "Massas", etaMinutes: 30, deliveryFee: 5.0 },
-      { id: "r4", name: "Doce Ponto", category: "Sobremesas", etaMinutes: 25, deliveryFee: 4.5 },
+      { id: "r1", ownerId: null, name: "Sabor da Vila", category: "Brasileira", address: "Rua das Flores, 120", etaMinutes: 35, deliveryFee: 6.9, active: true },
+      { id: "r2", ownerId: null, name: "Pizzaria Bella", category: "Pizzas", address: "Av. Central, 500", etaMinutes: 40, deliveryFee: 8.5, active: true },
     ];
     const demoMenus = {
       r1: [
-        { id: "m1", name: "Feijoada completa", description: "Arroz, couve e farofa", price: 32.9 },
-        { id: "m2", name: "Frango grelhado", description: "Com legumes salteados", price: 24.5 },
+        { id: "m1", restaurantId: "r1", name: "Feijoada completa", description: "Arroz, couve e farofa", price: 32.9, available: true },
+        { id: "m2", restaurantId: "r1", name: "Frango grelhado", description: "Com legumes salteados", price: 24.5, available: true },
       ],
       r2: [
-        { id: "m3", name: "Pizza Margherita", description: "Molho, muçarela e manjericão", price: 44.0 },
-        { id: "m4", name: "Pizza Calabresa", description: "Cebola e azeitona", price: 46.0 },
-      ],
-      r3: [
-        { id: "m5", name: "Fettuccine ao molho branco", description: "Com champignon", price: 29.9 },
-        { id: "m6", name: "Nhoque ao sugo", description: "Molho de tomate fresco", price: 27.0 },
-      ],
-      r4: [
-        { id: "m7", name: "Brigadeiro gourmet (6un)", description: "", price: 18.0 },
-        { id: "m8", name: "Torta de limão (fatia)", description: "", price: 12.5 },
+        { id: "m3", restaurantId: "r2", name: "Pizza Margherita", description: "Molho, muçarela e manjericão", price: 44.0, available: true },
       ],
     };
-
     let currentUser = null;
     let profile = null;
     const orders = [];
     const authListeners = [];
+    let idCounter = 1;
+
+    function findOrder(id) {
+      return orders.find((o) => o.id === id);
+    }
 
     return {
-      async signUp({ name, email, phone }) {
+      async signUp({ name, email, phone, role }) {
         currentUser = { id: "demo-user", email };
-        profile = { name, email, phone, address: "" };
+        profile = { name, email, phone, address: "", role: role || "cliente" };
+        if (profile.role === "restaurante") {
+          demoRestaurants.push({
+            id: "r-demo",
+            ownerId: currentUser.id,
+            name: name || "Meu restaurante",
+            category: "Geral",
+            address: "",
+            etaMinutes: 30,
+            deliveryFee: 0,
+            active: true,
+          });
+          demoMenus["r-demo"] = [];
+        }
         authListeners.forEach((cb) => cb(currentUser));
         return { user: currentUser };
       },
       async signIn({ email }) {
         currentUser = { id: "demo-user", email };
-        profile = profile || { name: "Cliente Demo", email, phone: "", address: "" };
+        profile = profile || { name: "Usuário Demo", email, phone: "", address: "", role: "cliente" };
         authListeners.forEach((cb) => cb(currentUser));
         return { user: currentUser };
       },
@@ -256,35 +431,103 @@
       onAuthChange(cb) {
         authListeners.push(cb);
       },
+      async getProfile() {
+        return profile || { name: "", email: "", phone: "", address: "", role: "cliente" };
+      },
+      async updateProfile(_userId, updates) {
+        profile = { ...profile, ...updates };
+        return { profile };
+      },
+
       async getRestaurants() {
-        return demoRestaurants;
+        return demoRestaurants.filter((r) => r.active);
       },
       async getMenu(restaurantId) {
-        return demoMenus[restaurantId] || [];
+        return (demoMenus[restaurantId] || []).filter((m) => m.available);
       },
       async createOrder({ restaurantId, items, address, total }) {
         const restaurant = demoRestaurants.find((r) => r.id === restaurantId);
         const order = {
-          id: "o" + (orders.length + 1),
+          id: "o" + idCounter++,
+          userId: currentUser ? currentUser.id : null,
+          restaurantId,
           restaurantName: restaurant ? restaurant.name : "Restaurante",
+          restaurantAddress: restaurant ? restaurant.address : "",
           status: "recebido",
           total,
           createdAt: new Date().toISOString(),
           items,
           address,
+          courierId: null,
+          pickupCode: null,
         };
         orders.unshift(order);
         return { order };
       },
-      async getOrders() {
-        return orders;
+      async getOrders(userId) {
+        return orders.filter((o) => o.userId === userId);
       },
-      async getProfile() {
-        return profile || { name: "", email: "", phone: "", address: "" };
+
+      async getMyRestaurant(ownerId) {
+        return demoRestaurants.find((r) => r.ownerId === ownerId) || null;
       },
-      async updateProfile(_userId, updates) {
-        profile = { ...profile, ...updates };
-        return { profile };
+      async updateMyRestaurant(restaurantId, updates) {
+        const r = demoRestaurants.find((r) => r.id === restaurantId);
+        Object.assign(r, updates);
+        return { restaurant: r };
+      },
+      async getMyMenu(restaurantId) {
+        return demoMenus[restaurantId] || [];
+      },
+      async createMenuItem(restaurantId, item) {
+        const newItem = { id: "m" + idCounter++, restaurantId, available: true, ...item };
+        demoMenus[restaurantId] = demoMenus[restaurantId] || [];
+        demoMenus[restaurantId].push(newItem);
+        return { item: newItem };
+      },
+      async updateMenuItem(itemId, updates) {
+        for (const key in demoMenus) {
+          const item = demoMenus[key].find((m) => m.id === itemId);
+          if (item) {
+            Object.assign(item, updates);
+            return { item };
+          }
+        }
+      },
+      async deleteMenuItem(itemId) {
+        for (const key in demoMenus) {
+          demoMenus[key] = demoMenus[key].filter((m) => m.id !== itemId);
+        }
+      },
+      async getRestaurantOrders(restaurantId) {
+        return orders.filter((o) => o.restaurantId === restaurantId);
+      },
+      async updateOrderStatus(orderId, status) {
+        const o = findOrder(orderId);
+        if (o) o.status = status;
+      },
+
+      async getAvailableDeliveries() {
+        return orders.filter((o) => o.status === "pronto" && !o.courierId);
+      },
+      async getMyDeliveries(courierId) {
+        return orders.filter((o) => o.courierId === courierId);
+      },
+      async claimDelivery(orderId, courierId) {
+        const o = findOrder(orderId);
+        if (!o || o.courierId) throw new Error("Este pedido já foi aceito por outro entregador.");
+        o.courierId = courierId;
+        o.pickupCode = genCode();
+        o.status = "pronto";
+        return { order: { id: o.id, pickupCode: o.pickupCode } };
+      },
+      async confirmPickup(orderId) {
+        const o = findOrder(orderId);
+        if (o) o.status = "a_caminho";
+      },
+      async confirmDelivery(orderId) {
+        const o = findOrder(orderId);
+        if (o) o.status = "entregue";
       },
     };
   }
