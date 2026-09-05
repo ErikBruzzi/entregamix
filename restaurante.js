@@ -214,11 +214,20 @@
           ${itemsHtml ? `<div class="order-items">${itemsHtml}</div>` : ""}
           <div class="order-items">Entregar em: ${o.address}</div>
           <div class="order-actions" data-id="${o.id}">${actions}</div>
+          <div class="order-actions">
+            <button class="chat-btn" data-chat-order="${o.id}">💬 Chat com o cliente</button>
+          </div>
         </div>`;
       })
       .join("");
 
-    list.querySelectorAll(".order-actions").forEach((el) => {
+    list.querySelectorAll("[data-chat-order]").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        openChat(btn.dataset.chatOrder, "restaurante", "Chat com o cliente", "restaurante")
+      );
+    });
+
+    list.querySelectorAll(".order-actions[data-id]").forEach((el) => {
       el.querySelectorAll("button[data-action]").forEach((btn) => {
         btn.addEventListener("click", async () => {
           await window.DB.updateOrderStatus(el.dataset.id, btn.dataset.action);
@@ -227,6 +236,65 @@
       });
     });
   }
+
+  /* ---------------- CHAT ---------------- */
+  let chatSub = null;
+  let chatOrderId = null;
+
+  async function openChat(orderId, channel, title) {
+    chatOrderId = orderId;
+    $("chatTitle").textContent = title;
+    $("chatOverlay").classList.add("active");
+    $("chatMessages").innerHTML = '<div class="chat-empty">Carregando conversa...</div>';
+    const msgs = await window.DB.getMessages(orderId, channel);
+    renderChatMessages(msgs);
+    if (chatSub) window.DB.unsubscribe(chatSub);
+    chatSub = window.DB.subscribeToMessages(orderId, channel, (msg) => appendChatMessage(msg));
+  }
+
+  function closeChat() {
+    $("chatOverlay").classList.remove("active");
+    if (chatSub) window.DB.unsubscribe(chatSub);
+    chatSub = null;
+  }
+  $("chatCloseBtn").addEventListener("click", closeChat);
+
+  function renderChatMessages(msgs) {
+    const box = $("chatMessages");
+    if (!msgs.length) {
+      box.innerHTML = '<div class="chat-empty">Nenhuma mensagem ainda. Diga olá!</div>';
+      return;
+    }
+    box.innerHTML = "";
+    msgs.forEach((m) => appendChatMessage(m));
+  }
+
+  function appendChatMessage(m) {
+    const box = $("chatMessages");
+    if (box.querySelector(".chat-empty")) box.innerHTML = "";
+    const mine = m.senderRole === "restaurante";
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble " + (mine ? "mine" : "theirs");
+    const who = mine ? "Você" : "Cliente";
+    bubble.innerHTML = `<div class="who">${who}</div>${escapeHtml(m.content)}`;
+    box.appendChild(bubble);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  $("chatForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = $("chatInput");
+    const content = input.value.trim();
+    if (!content) return;
+    input.value = "";
+    await window.DB.sendMessage(chatOrderId, "restaurante", content, "restaurante");
+  });
 
   /* ---------------- INICIALIZAÇÃO ---------------- */
   function showDashboard() {

@@ -76,6 +76,24 @@
   .login-gate { padding:60px 20px; text-align:center; }
   .login-gate .field { text-align:left; max-width:320px; margin:0 auto 14px; }
   .toggle-row { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+
+  /* Chat */
+  .chat-btn { background:var(--surface); color:var(--ink); font-weight:600; font-size:13px; padding:8px 12px; border-radius:10px; }
+  .chat-overlay { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100; display:none; align-items:flex-end; justify-content:center; }
+  .chat-overlay.active { display:flex; }
+  .chat-panel { background:#fff; width:100%; max-width:520px; height:78vh; border-radius:20px 20px 0 0; display:flex; flex-direction:column; overflow:hidden; }
+  .chat-header { background:var(--ink); color:#fff; padding:16px 18px; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
+  .chat-header .title { font-weight:700; font-size:15px; }
+  .chat-close { background:none; color:#fff; font-size:20px; line-height:1; }
+  .chat-messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .chat-bubble { max-width:78%; padding:10px 13px; border-radius:14px; font-size:14px; line-height:1.4; }
+  .chat-bubble .who { font-size:11px; font-weight:700; opacity:.65; margin-bottom:2px; }
+  .chat-bubble.mine { align-self:flex-end; background:var(--green); color:#fff; border-bottom-right-radius:4px; }
+  .chat-bubble.theirs { align-self:flex-start; background:var(--surface); color:var(--ink); border-bottom-left-radius:4px; }
+  .chat-input-row { display:flex; gap:8px; padding:12px; border-top:1px solid var(--line); flex-shrink:0; }
+  .chat-input-row input { flex:1; border:1px solid var(--line); border-radius:10px; padding:11px 14px; font-size:14px; outline:none; }
+  .chat-input-row button { background:var(--red); color:#fff; padding:0 18px; border-radius:10px; font-weight:700; }
+  .chat-empty { text-align:center; color:var(--ink-soft); font-size:13px; margin-top:30px; }
 </style>
 </head>
 <body>
@@ -142,6 +160,20 @@
     <div class="panel" id="panel-orders">
       <div id="ordersList"></div>
     </div>
+  </div>
+</div>
+
+<div class="chat-overlay" id="chatOverlay">
+  <div class="chat-panel">
+    <div class="chat-header">
+      <span class="title" id="chatTitle">Chat</span>
+      <button class="chat-close" id="chatCloseBtn">✕</button>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <form class="chat-input-row" id="chatForm">
+      <input type="text" id="chatInput" placeholder="Escreva uma mensagem..." autocomplete="off" required />
+      <button type="submit">Enviar</button>
+    </form>
   </div>
 </div>
 

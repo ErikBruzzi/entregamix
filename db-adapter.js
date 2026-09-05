@@ -19,7 +19,7 @@
     - getRestaurants()                                 -> [{ id, name, category, etaMinutes, deliveryFee }]
     - getMenu(restaurantId)                            -> [{ id, name, description, price }]
     - createOrder({ restaurantId, items, address, total }) -> { order }
-    - getOrders(userId)                                -> [{ id, restaurantName, status, total, createdAt, items }]
+    - getOrders(userId)                                -> [{ id, restaurantName, status, total, createdAt, items, courierId }]
 
     Restaurante (dono):
     - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryFee, active }
@@ -37,6 +37,13 @@
     - claimDelivery(orderId, courierId)                -> { order }  (lança erro se outro entregador já pegou)
     - confirmPickup(orderId)                           -> void  (status -> a_caminho)
     - confirmDelivery(orderId)                         -> void  (status -> entregue)
+
+    Chat (usado pelos três papéis, um pedido pode ter até 2 conversas):
+    - getMessages(orderId, channel)                    -> [{ id, senderId, senderRole, content, createdAt }]
+      channel é 'restaurante' (cliente↔restaurante) ou 'entregador' (cliente↔entregador)
+    - sendMessage(orderId, channel, content, senderRole) -> { message }
+    - subscribeToMessages(orderId, channel, onMessage) -> subscription (guarde para poder cancelar)
+    - unsubscribe(subscription)                        -> void
 */
 
 (function () {
@@ -185,7 +192,7 @@
       async getOrders(userId) {
         const { data, error } = await client
           .from("orders")
-          .select("id, status, total, created_at, restaurants(name), order_items(name, price, quantity)")
+          .select("id, status, total, created_at, courier_id, restaurants(name), order_items(name, price, quantity)")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
         if (error) throw error;
@@ -196,6 +203,7 @@
           total: o.total,
           createdAt: o.created_at,
           items: o.order_items || [],
+          courierId: o.courier_id,
         }));
       },
 
@@ -365,6 +373,69 @@
         const { error } = await client.from("orders").update({ status: "entregue" }).eq("id", orderId);
         if (error) throw error;
       },
+
+      /* ---------- CHAT ---------- */
+      async getMessages(orderId, channel) {
+        const { data, error } = await client
+          .from("messages")
+          .select("id, sender_id, sender_role, content, created_at")
+          .eq("order_id", orderId)
+          .eq("channel", channel)
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        return (data || []).map((m) => ({
+          id: m.id,
+          senderId: m.sender_id,
+          senderRole: m.sender_role,
+          content: m.content,
+          createdAt: m.created_at,
+        }));
+      },
+
+      async sendMessage(orderId, channel, content, senderRole) {
+        const session = await this.getSession();
+        const senderId = session ? session.user.id : null;
+        const { data, error } = await client
+          .from("messages")
+          .insert({ order_id: orderId, channel, sender_id: senderId, sender_role: senderRole, content })
+          .select()
+          .single();
+        if (error) throw error;
+        return {
+          message: {
+            id: data.id,
+            senderId: data.sender_id,
+            senderRole: data.sender_role,
+            content: data.content,
+            createdAt: data.created_at,
+          },
+        };
+      },
+
+      subscribeToMessages(orderId, channel, onMessage) {
+        const sub = client
+          .channel("messages-" + orderId + "-" + channel)
+          .on(
+            "postgres_changes",
+            { event: "INSERT", schema: "public", table: "messages", filter: "order_id=eq." + orderId },
+            (payload) => {
+              if (payload.new.channel !== channel) return;
+              onMessage({
+                id: payload.new.id,
+                senderId: payload.new.sender_id,
+                senderRole: payload.new.sender_role,
+                content: payload.new.content,
+                createdAt: payload.new.created_at,
+              });
+            }
+          )
+          .subscribe();
+        return sub;
+      },
+
+      unsubscribe(sub) {
+        if (sub) client.removeChannel(sub);
+      },
     };
   }
 
@@ -389,6 +460,8 @@
     let profile = null;
     const orders = [];
     const authListeners = [];
+    const messages = {};
+    const messageListeners = {};
     let idCounter = 1;
 
     function findOrder(id) {
@@ -528,6 +601,37 @@
       async confirmDelivery(orderId) {
         const o = findOrder(orderId);
         if (o) o.status = "entregue";
+      },
+
+      /* ---------- CHAT (simulado, só nesta aba) ---------- */
+      async getMessages(orderId, channel) {
+        const key = orderId + ":" + channel;
+        return messages[key] || [];
+      },
+      async sendMessage(orderId, channel, content, senderRole) {
+        const key = orderId + ":" + channel;
+        const msg = {
+          id: "msg" + idCounter++,
+          senderId: currentUser ? currentUser.id : null,
+          senderRole,
+          content,
+          createdAt: new Date().toISOString(),
+        };
+        messages[key] = messages[key] || [];
+        messages[key].push(msg);
+        (messageListeners[key] || []).forEach((cb) => cb(msg));
+        return { message: msg };
+      },
+      subscribeToMessages(orderId, channel, onMessage) {
+        const key = orderId + ":" + channel;
+        messageListeners[key] = messageListeners[key] || [];
+        messageListeners[key].push(onMessage);
+        return { key, onMessage };
+      },
+      unsubscribe(sub) {
+        if (!sub) return;
+        const list = messageListeners[sub.key];
+        if (list) messageListeners[sub.key] = list.filter((cb) => cb !== sub.onMessage);
       },
     };
   }

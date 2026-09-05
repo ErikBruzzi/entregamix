@@ -68,6 +68,16 @@ create table if not exists order_items (
   quantity int not null default 1
 );
 
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid references orders (id) on delete cascade,
+  channel text not null check (channel in ('restaurante', 'entregador')),
+  sender_id uuid references auth.users (id),
+  sender_role text not null check (sender_role in ('cliente', 'restaurante', 'entregador')),
+  content text not null,
+  created_at timestamp with time zone default now()
+);
+
 -- ------------------------------------------------------------
 -- SEGURANÇA (Row Level Security)
 -- ------------------------------------------------------------
@@ -76,6 +86,7 @@ alter table orders enable row level security;
 alter table order_items enable row level security;
 alter table restaurants enable row level security;
 alter table menu_items enable row level security;
+alter table messages enable row level security;
 
 -- PROFILES
 drop policy if exists "usuário lê seu próprio perfil" on profiles;
@@ -177,6 +188,51 @@ create policy "usuário cria itens dos próprios pedidos" on order_items
   for insert with check (
     exists (select 1 from orders o where o.id = order_items.order_id and o.user_id = auth.uid())
   );
+
+-- MESSAGES (chat)
+-- Só quem faz parte do pedido pode ler: o cliente, o dono do restaurante,
+-- e (só no canal "entregador") o entregador que aceitou aquela corrida.
+drop policy if exists "participantes leem mensagens do pedido" on messages;
+create policy "participantes leem mensagens do pedido" on messages
+  for select using (
+    exists (
+      select 1 from orders o
+      left join restaurants r on r.id = o.restaurant_id
+      where o.id = messages.order_id
+        and (
+          o.user_id = auth.uid()
+          or r.owner_id = auth.uid()
+          or o.courier_id = auth.uid()
+        )
+    )
+  );
+
+drop policy if exists "participantes enviam mensagens do pedido" on messages;
+create policy "participantes enviam mensagens do pedido" on messages
+  for insert with check (
+    sender_id = auth.uid()
+    and exists (
+      select 1 from orders o
+      left join restaurants r on r.id = o.restaurant_id
+      where o.id = messages.order_id
+        and (
+          (channel = 'restaurante' and (o.user_id = auth.uid() or r.owner_id = auth.uid()))
+          or (channel = 'entregador' and (o.user_id = auth.uid() or o.courier_id = auth.uid()))
+        )
+    )
+  );
+
+-- Liga a tabela ao Realtime, para as mensagens chegarem instantaneamente
+-- sem precisar recarregar a página.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'messages'
+  ) then
+    alter publication supabase_realtime add table messages;
+  end if;
+end $$;
 
 -- ------------------------------------------------------------
 -- CRIAÇÃO AUTOMÁTICA DE PERFIL (E RESTAURANTE, SE FOR O CASO)

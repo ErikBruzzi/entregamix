@@ -163,6 +163,7 @@
         </div>
         ${d.status !== "entregue" ? `<div class="code-box">Código de retirada<strong>${d.pickupCode}</strong></div>` : ""}
         ${action}
+        <button class="chat-btn" data-chat-order="${d.id}">💬 Chat com o cliente</button>
       </div>`;
     }
 
@@ -172,6 +173,12 @@
         ? `<div style="margin:18px 0 10px; font-weight:700; color:var(--ink-soft); font-size:13px;">Concluídas</div>` +
           done.map(card).join("")
         : "");
+
+    box.querySelectorAll("[data-chat-order]").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        openChat(btn.dataset.chatOrder, "entregador", "Chat com o cliente")
+      );
+    });
 
     box.querySelectorAll("[data-action='pickup']").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -189,6 +196,65 @@
       });
     });
   }
+
+  /* ---------------- CHAT ---------------- */
+  let chatSub = null;
+  let chatOrderId = null;
+
+  async function openChat(orderId, channel, title) {
+    chatOrderId = orderId;
+    $("chatTitle").textContent = title;
+    $("chatOverlay").classList.add("active");
+    $("chatMessages").innerHTML = '<div class="chat-empty">Carregando conversa...</div>';
+    const msgs = await window.DB.getMessages(orderId, channel);
+    renderChatMessages(msgs);
+    if (chatSub) window.DB.unsubscribe(chatSub);
+    chatSub = window.DB.subscribeToMessages(orderId, channel, (msg) => appendChatMessage(msg));
+  }
+
+  function closeChat() {
+    $("chatOverlay").classList.remove("active");
+    if (chatSub) window.DB.unsubscribe(chatSub);
+    chatSub = null;
+  }
+  $("chatCloseBtn").addEventListener("click", closeChat);
+
+  function renderChatMessages(msgs) {
+    const box = $("chatMessages");
+    if (!msgs.length) {
+      box.innerHTML = '<div class="chat-empty">Nenhuma mensagem ainda. Diga olá!</div>';
+      return;
+    }
+    box.innerHTML = "";
+    msgs.forEach((m) => appendChatMessage(m));
+  }
+
+  function appendChatMessage(m) {
+    const box = $("chatMessages");
+    if (box.querySelector(".chat-empty")) box.innerHTML = "";
+    const mine = m.senderRole === "entregador";
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble " + (mine ? "mine" : "theirs");
+    const who = mine ? "Você" : "Cliente";
+    bubble.innerHTML = `<div class="who">${who}</div>${escapeHtml(m.content)}`;
+    box.appendChild(bubble);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  $("chatForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = $("chatInput");
+    const content = input.value.trim();
+    if (!content) return;
+    input.value = "";
+    await window.DB.sendMessage(chatOrderId, "entregador", content, "entregador");
+  });
 
   /* ---------------- CONTA ---------------- */
   function renderAccount() {

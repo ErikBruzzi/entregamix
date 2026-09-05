@@ -329,10 +329,85 @@
             <span>${date}</span>
             <span>R$ ${Number(o.total).toFixed(2).replace(".", ",")}</span>
           </div>
+          <div>
+            <button class="chat-btn" data-chat-order="${o.id}" data-chat-channel="restaurante" data-chat-title="Chat com ${o.restaurantName}">💬 Falar com o restaurante</button>
+            ${o.courierId ? `<button class="chat-btn" data-chat-order="${o.id}" data-chat-channel="entregador" data-chat-title="Chat com o entregador">💬 Falar com o entregador</button>` : ""}
+          </div>
         </div>`;
       })
       .join("");
+    list.querySelectorAll("[data-chat-order]").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        openChat(btn.dataset.chatOrder, btn.dataset.chatChannel, btn.dataset.chatTitle, "cliente")
+      );
+    });
   }
+
+  /* ---------------- CHAT ---------------- */
+  let chatSub = null;
+  let chatOrderId = null;
+  let chatChannel = null;
+  let chatSenderRole = null;
+
+  async function openChat(orderId, channel, title, senderRole) {
+    chatOrderId = orderId;
+    chatChannel = channel;
+    chatSenderRole = senderRole;
+    $("chatTitle").textContent = title;
+    $("chatOverlay").classList.add("active");
+    $("chatMessages").innerHTML = '<div class="chat-empty">Carregando conversa...</div>';
+    const msgs = await window.DB.getMessages(orderId, channel);
+    renderChatMessages(msgs);
+    if (chatSub) window.DB.unsubscribe(chatSub);
+    chatSub = window.DB.subscribeToMessages(orderId, channel, (msg) => {
+      appendChatMessage(msg);
+    });
+  }
+
+  function closeChat() {
+    $("chatOverlay").classList.remove("active");
+    if (chatSub) window.DB.unsubscribe(chatSub);
+    chatSub = null;
+  }
+  $("chatCloseBtn").addEventListener("click", closeChat);
+
+  function renderChatMessages(msgs) {
+    const box = $("chatMessages");
+    if (!msgs.length) {
+      box.innerHTML = '<div class="chat-empty">Nenhuma mensagem ainda. Diga olá!</div>';
+      return;
+    }
+    box.innerHTML = "";
+    msgs.forEach((m) => appendChatMessage(m, true));
+  }
+
+  function appendChatMessage(m, skipScroll) {
+    const box = $("chatMessages");
+    if (box.querySelector(".chat-empty")) box.innerHTML = "";
+    const mine = m.senderRole === chatSenderRole;
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble " + (mine ? "mine" : "theirs");
+    const who = mine ? "Você" : m.senderRole === "restaurante" ? "Restaurante" : m.senderRole === "entregador" ? "Entregador" : "Cliente";
+    bubble.innerHTML = `<div class="who">${who}</div>${escapeHtml(m.content)}`;
+    box.appendChild(bubble);
+    if (!skipScroll) box.scrollTop = box.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  $("chatForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = $("chatInput");
+    const content = input.value.trim();
+    if (!content) return;
+    input.value = "";
+    await window.DB.sendMessage(chatOrderId, chatChannel, content, chatSenderRole);
+    $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
+  });
 
   /* ---------------- CONTA ---------------- */
   async function renderAccount() {
