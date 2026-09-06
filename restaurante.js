@@ -80,7 +80,8 @@
     $("settCategory").value = myRestaurant.category || "";
     $("settAddress").value = myRestaurant.address || "";
     $("settEta").value = myRestaurant.etaMinutes || 30;
-    $("settFee").value = myRestaurant.deliveryFee || 0;
+    $("settBaseFee").value = myRestaurant.deliveryBaseFee ?? 5;
+    $("settPerKm").value = myRestaurant.deliveryPricePerKm ?? 1.5;
     $("settActive").checked = !!myRestaurant.active;
   }
 
@@ -92,7 +93,8 @@
         category: $("settCategory").value.trim(),
         address: $("settAddress").value.trim(),
         etaMinutes: parseInt($("settEta").value, 10),
-        deliveryFee: parseFloat($("settFee").value),
+        deliveryBaseFee: parseFloat($("settBaseFee").value),
+        deliveryPricePerKm: parseFloat($("settPerKm").value),
         active: $("settActive").checked,
       };
       const { restaurant } = await window.DB.updateMyRestaurant(myRestaurant.id, updates);
@@ -245,8 +247,9 @@
           </div>
           <div class="row" style="color:var(--ink-soft); font-size:13px;">
             <span>${date}</span>
-            <span>R$ ${Number(o.total).toFixed(2).replace(".", ",")}</span>
+            <span>Você recebe: R$ ${Number(o.foodSubtotal ?? o.total).toFixed(2).replace(".", ",")}</span>
           </div>
+          <div style="font-size:12px; color:var(--ink-soft); margin-top:-4px; margin-bottom:6px;">Total pago pelo cliente (comida + entrega): R$ ${Number(o.total).toFixed(2).replace(".", ",")}</div>
           ${itemsHtml ? `<div class="order-items">${itemsHtml}</div>` : ""}
           <div class="order-items">Entregar em: ${o.address}</div>
           <div class="order-actions" data-id="${o.id}">${actions}</div>

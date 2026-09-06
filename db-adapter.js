@@ -16,14 +16,15 @@
     - updateProfile(userId, data)                      -> { profile }
 
     Cliente:
-    - getRestaurants()                                 -> [{ id, name, category, etaMinutes, deliveryFee }]
+    - getRestaurants()                                 -> [{ id, name, category, etaMinutes, deliveryBaseFee }]
+    - calculateDeliveryFee(restaurantId, address)      -> { distanceKm, durationMin, fee }  (usa a Edge Function + Google Maps)
     - getMenu(restaurantId)                            -> [{ id, name, description, price, imageUrl }]
-    - createOrder({ restaurantId, items, address, total }) -> { order }
-    - getOrders(userId)                                -> [{ id, restaurantName, status, total, createdAt, items, courierId }]
+    - createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) -> { order }
+    - getOrders(userId)                                -> [{ id, restaurantName, status, total, foodSubtotal, deliveryFee, createdAt, items, courierId }]
 
     Restaurante (dono):
-    - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryFee, active }
-    - updateMyRestaurant(restaurantId, data)           -> { restaurant }
+    - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryBaseFee, deliveryPricePerKm, active }
+    - updateMyRestaurant(restaurantId, data)           -> { restaurant }  (data pode incluir deliveryBaseFee, deliveryPricePerKm)
     - getMyMenu(restaurantId)                          -> [{ id, name, description, price, available, imageUrl }]
     - createMenuItem(restaurantId, data)               -> { item }  (data pode incluir imageUrl)
     - updateMenuItem(itemId, data)                     -> { item }
@@ -145,7 +146,7 @@
       async getRestaurants() {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, eta_minutes, delivery_fee")
+          .select("id, name, category, eta_minutes, delivery_base_fee")
           .eq("active", true);
         if (error) throw error;
         return (data || []).map((r) => ({
@@ -153,8 +154,23 @@
           name: r.name,
           category: r.category,
           etaMinutes: r.eta_minutes,
-          deliveryFee: r.delivery_fee,
+          deliveryBaseFee: r.delivery_base_fee,
         }));
+      },
+
+      async calculateDeliveryFee(restaurantId, address) {
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/calculate-delivery-fee", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: config.SUPABASE_ANON_KEY,
+            Authorization: "Bearer " + config.SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ restaurantId, address }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Não foi possível calcular a taxa de entrega.");
+        return data; // { distanceKm, durationMin, fee }
       },
 
       async getMenu(restaurantId) {
@@ -173,12 +189,21 @@
         }));
       },
 
-      async createOrder({ restaurantId, items, address, total }) {
+      async createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
         const session = await this.getSession();
         const userId = session ? session.user.id : null;
         const { data, error } = await client
           .from("orders")
-          .insert({ user_id: userId, restaurant_id: restaurantId, address, total, status: "recebido" })
+          .insert({
+            user_id: userId,
+            restaurant_id: restaurantId,
+            address,
+            food_subtotal: foodSubtotal,
+            delivery_fee: deliveryFee,
+            delivery_distance_km: deliveryDistanceKm,
+            total,
+            status: "recebido",
+          })
           .select()
           .single();
         if (error) throw error;
@@ -199,7 +224,9 @@
       async getOrders(userId) {
         const { data, error } = await client
           .from("orders")
-          .select("id, status, total, created_at, courier_id, restaurants(name), order_items(name, price, quantity)")
+          .select(
+            "id, status, total, food_subtotal, delivery_fee, created_at, courier_id, restaurants(name), order_items(name, price, quantity)"
+          )
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
         if (error) throw error;
@@ -208,6 +235,8 @@
           restaurantName: o.restaurants ? o.restaurants.name : "Restaurante",
           status: o.status,
           total: o.total,
+          foodSubtotal: o.food_subtotal,
+          deliveryFee: o.delivery_fee,
           createdAt: o.created_at,
           items: o.order_items || [],
           courierId: o.courier_id,
@@ -218,7 +247,7 @@
       async getMyRestaurant(ownerId) {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, address, eta_minutes, delivery_fee, active")
+          .select("id, name, category, address, eta_minutes, delivery_base_fee, delivery_price_per_km, active")
           .eq("owner_id", ownerId)
           .maybeSingle();
         if (error) throw error;
@@ -229,7 +258,8 @@
           category: data.category,
           address: data.address,
           etaMinutes: data.eta_minutes,
-          deliveryFee: data.delivery_fee,
+          deliveryBaseFee: data.delivery_base_fee,
+          deliveryPricePerKm: data.delivery_price_per_km,
           active: data.active,
         };
       },
@@ -238,9 +268,16 @@
         const payload = {};
         if (updates.name !== undefined) payload.name = updates.name;
         if (updates.category !== undefined) payload.category = updates.category;
-        if (updates.address !== undefined) payload.address = updates.address;
+        if (updates.address !== undefined) {
+          payload.address = updates.address;
+          // Endereço mudou: limpa as coordenadas guardadas para forçar uma
+          // nova geocodificação na próxima vez que alguém calcular o frete.
+          payload.lat = null;
+          payload.lng = null;
+        }
         if (updates.etaMinutes !== undefined) payload.eta_minutes = updates.etaMinutes;
-        if (updates.deliveryFee !== undefined) payload.delivery_fee = updates.deliveryFee;
+        if (updates.deliveryBaseFee !== undefined) payload.delivery_base_fee = updates.deliveryBaseFee;
+        if (updates.deliveryPricePerKm !== undefined) payload.delivery_price_per_km = updates.deliveryPricePerKm;
         if (updates.active !== undefined) payload.active = updates.active;
         const { data, error } = await client
           .from("restaurants")
@@ -307,13 +344,24 @@
         if (error) throw error;
       },
 
+      async requestUploadToken(restaurantId) {
+        const { data, error } = await client
+          .from("upload_tokens")
+          .insert({ restaurant_id: restaurantId })
+          .select()
+          .single();
+        if (error) throw error;
+        return data.token;
+      },
+
       async uploadMenuImage(restaurantId, file) {
+        // Pede um código de permissão de uso único antes de enviar (veja o
+        // comentário no supabase-schema.sql sobre por que isso é necessário
+        // neste projeto). Essa etapa passa pela checagem normal de dono do
+        // restaurante, que funciona corretamente.
+        const token = await this.requestUploadToken(restaurantId);
         const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-        const path = restaurantId + "/" + Date.now() + "." + ext;
-        // upsert:false porque o nome do arquivo já é único (baseado no horário);
-        // nunca existe um arquivo para sobrescrever, então evitamos a checagem
-        // interna de "já existe?" que em alguns projetos do Supabase esbarra
-        // em RLS mesmo com a política de leitura correta.
+        const path = token + "/" + Date.now() + "." + ext;
         const { error } = await client.storage.from("menu-images").upload(path, file, {
           upsert: false,
           cacheControl: "3600",
@@ -326,7 +374,7 @@
       async getRestaurantOrders(restaurantId) {
         const { data, error } = await client
           .from("orders")
-          .select("id, status, total, created_at, address, courier_id, pickup_code, order_items(name, price, quantity)")
+          .select("id, status, total, food_subtotal, delivery_fee, created_at, address, courier_id, pickup_code, order_items(name, price, quantity)")
           .eq("restaurant_id", restaurantId)
           .order("created_at", { ascending: false });
         if (error) throw error;
@@ -334,6 +382,8 @@
           id: o.id,
           status: o.status,
           total: o.total,
+          foodSubtotal: o.food_subtotal,
+          deliveryFee: o.delivery_fee,
           createdAt: o.created_at,
           address: o.address,
           courierId: o.courier_id,
@@ -351,7 +401,7 @@
       async getAvailableDeliveries() {
         const { data, error } = await client
           .from("orders")
-          .select("id, total, created_at, address, restaurants(name, address)")
+          .select("id, total, delivery_fee, delivery_distance_km, created_at, address, restaurants(name, address)")
           .eq("status", "pronto")
           .is("courier_id", null)
           .order("created_at", { ascending: true });
@@ -359,6 +409,8 @@
         return (data || []).map((o) => ({
           id: o.id,
           total: o.total,
+          deliveryFee: o.delivery_fee,
+          distanceKm: o.delivery_distance_km,
           createdAt: o.created_at,
           address: o.address,
           restaurantName: o.restaurants ? o.restaurants.name : "Restaurante",
@@ -369,13 +421,15 @@
       async getMyDeliveries(courierId) {
         const { data, error } = await client
           .from("orders")
-          .select("id, total, created_at, address, status, pickup_code, restaurants(name, address)")
+          .select("id, total, delivery_fee, delivery_distance_km, created_at, address, status, pickup_code, restaurants(name, address)")
           .eq("courier_id", courierId)
           .order("created_at", { ascending: false });
         if (error) throw error;
         return (data || []).map((o) => ({
           id: o.id,
           total: o.total,
+          deliveryFee: o.delivery_fee,
+          distanceKm: o.delivery_distance_km,
           createdAt: o.created_at,
           address: o.address,
           status: o.status,
@@ -480,8 +534,8 @@
   --------------------------------------------------------------------- */
   function buildDemoAdapter() {
     const demoRestaurants = [
-      { id: "r1", ownerId: null, name: "Sabor da Vila", category: "Brasileira", address: "Rua das Flores, 120", etaMinutes: 35, deliveryFee: 6.9, active: true },
-      { id: "r2", ownerId: null, name: "Pizzaria Bella", category: "Pizzas", address: "Av. Central, 500", etaMinutes: 40, deliveryFee: 8.5, active: true },
+      { id: "r1", ownerId: null, name: "Sabor da Vila", category: "Brasileira", address: "Rua das Flores, 120", etaMinutes: 35, deliveryBaseFee: 5, deliveryPricePerKm: 1.5, active: true },
+      { id: "r2", ownerId: null, name: "Pizzaria Bella", category: "Pizzas", address: "Av. Central, 500", etaMinutes: 40, deliveryBaseFee: 6, deliveryPricePerKm: 1.8, active: true },
     ];
     const demoMenus = {
       r1: [
@@ -516,7 +570,8 @@
             category: "Geral",
             address: "",
             etaMinutes: 30,
-            deliveryFee: 0,
+            deliveryBaseFee: 5,
+            deliveryPricePerKm: 1.5,
             active: true,
           });
           demoMenus["r-demo"] = [];
@@ -551,10 +606,20 @@
       async getRestaurants() {
         return demoRestaurants.filter((r) => r.active);
       },
+      async calculateDeliveryFee(restaurantId, address) {
+        // Sem Google Maps no modo demo: gera uma distância plausível a
+        // partir do texto do endereço, só para simular a experiência.
+        const restaurant = demoRestaurants.find((r) => r.id === restaurantId);
+        const distanceKm = Math.round(((address.length % 12) + 1.5) * 10) / 10;
+        const base = restaurant ? Number(restaurant.deliveryBaseFee) : 5;
+        const perKm = restaurant ? Number(restaurant.deliveryPricePerKm) : 1.5;
+        const fee = Math.round((base + perKm * distanceKm) * 100) / 100;
+        return { distanceKm, durationMin: Math.round(distanceKm * 3), fee };
+      },
       async getMenu(restaurantId) {
         return (demoMenus[restaurantId] || []).filter((m) => m.available);
       },
-      async createOrder({ restaurantId, items, address, total }) {
+      async createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
         const restaurant = demoRestaurants.find((r) => r.id === restaurantId);
         const order = {
           id: "o" + idCounter++,
@@ -564,6 +629,9 @@
           restaurantAddress: restaurant ? restaurant.address : "",
           status: "recebido",
           total,
+          foodSubtotal,
+          deliveryFee,
+          deliveryDistanceKm,
           createdAt: new Date().toISOString(),
           items,
           address,

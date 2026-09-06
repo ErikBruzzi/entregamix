@@ -109,6 +109,8 @@
   .primary-btn:disabled { background: #E7A9AC; }
   .primary-btn.green { background: var(--green); }
   .empty-state { text-align: center; padding: 60px 20px; color: var(--ink-soft); }
+  .delivery-estimate { background: var(--surface); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; color: var(--ink-soft); }
+  .delivery-estimate strong { color: var(--ink); }
 
   /* Pedidos */
   .order-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
@@ -260,8 +262,12 @@
       <label>Endereço completo</label>
       <input type="text" id="checkoutAddress" placeholder="Rua, número, bairro, cidade" required />
     </div>
+    <button class="primary-btn" style="background:var(--ink); margin-bottom:14px;" id="calcFeeBtn">Calcular frete</button>
+    <div id="deliveryEstimate"></div>
+    <div class="totals-row"><span>Subtotal</span><span id="checkoutSubtotal">R$ 0,00</span></div>
+    <div class="totals-row"><span>Taxa de entrega</span><span id="checkoutFee">—</span></div>
     <div class="totals-row grand"><span>Total do pedido</span><span id="checkoutTotal">R$ 0,00</span></div>
-    <button class="primary-btn green" id="confirmOrderBtn">Confirmar pedido</button>
+    <button class="primary-btn green" id="confirmOrderBtn" disabled>Calcule o frete para continuar</button>
   </section>
 
   <!-- TELA: PEDIDOS -->

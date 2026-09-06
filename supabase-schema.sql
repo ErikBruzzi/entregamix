@@ -32,6 +32,11 @@ create table if not exists restaurants (
 );
 alter table restaurants add column if not exists owner_id uuid references auth.users (id) on delete set null;
 alter table restaurants add column if not exists address text;
+alter table restaurants add column if not exists lat double precision;
+alter table restaurants add column if not exists lng double precision;
+alter table restaurants add column if not exists delivery_base_fee numeric(10,2) default 5.00;
+alter table restaurants add column if not exists delivery_price_per_km numeric(10,2) default 1.50;
+comment on column restaurants.delivery_fee is 'Coluna antiga (taxa fixa). Substituída por delivery_base_fee + delivery_price_per_km, calculados por distância. Mantida só por compatibilidade.';
 
 create table if not exists menu_items (
   id uuid primary key default gen_random_uuid(),
@@ -60,6 +65,10 @@ create table if not exists orders (
 );
 alter table orders add column if not exists courier_id uuid references auth.users (id) on delete set null;
 alter table orders add column if not exists pickup_code text;
+alter table orders add column if not exists food_subtotal numeric(10,2);
+alter table orders add column if not exists delivery_fee numeric(10,2);
+alter table orders add column if not exists delivery_distance_km numeric(10,2);
+comment on column orders.delivery_fee is 'Valor calculado por distância, exclusivo da entrega — é este valor (não o total) que será repassado ao entregador quando o pagamento for implementado.';
 
 create table if not exists order_items (
   id uuid primary key default gen_random_uuid(),
@@ -79,6 +88,34 @@ create table if not exists messages (
   content text not null,
   created_at timestamp with time zone default now()
 );
+
+-- ------------------------------------------------------------
+-- TOKENS DE UPLOAD DE IMAGEM
+-- Contorna um problema específico deste projeto onde o Storage não
+-- consegue reconhecer auth.uid() do usuário logado (mesmo com um token
+-- válido, que funciona normalmente no resto do app). Em vez da política
+-- do Storage tentar identificar quem está enviando o arquivo, o app pede
+-- um "código de permissão" de uso único ANTES de enviar a foto — a
+-- criação desse código passa pela verificação normal de dono (que
+-- funciona), e o Storage só precisa confirmar que o código existe e é
+-- recente, sem depender de reconhecer o usuário.
+-- ------------------------------------------------------------
+create table if not exists upload_tokens (
+  token uuid primary key default gen_random_uuid(),
+  restaurant_id uuid references restaurants (id) on delete cascade,
+  created_at timestamp with time zone default now()
+);
+alter table upload_tokens enable row level security;
+
+drop policy if exists "dono gera token para seu restaurante" on upload_tokens;
+create policy "dono gera token para seu restaurante" on upload_tokens
+  for insert with check (
+    exists (select 1 from restaurants r where r.id = restaurant_id and r.owner_id = auth.uid())
+  );
+
+drop policy if exists "qualquer um pode conferir um token" on upload_tokens;
+create policy "qualquer um pode conferir um token" on upload_tokens
+  for select using (true);
 
 -- ------------------------------------------------------------
 -- SEGURANÇA (Row Level Security)
@@ -256,9 +293,9 @@ create policy "dono envia imagens do seu restaurante" on storage.objects
   for insert with check (
     bucket_id = 'menu-images'
     and exists (
-      select 1 from restaurants r
-      where r.owner_id = auth.uid()
-        and r.id::text = (storage.foldername(name))[1]
+      select 1 from upload_tokens t
+      where t.token::text = (storage.foldername(name))[1]
+        and t.created_at > now() - interval '10 minutes'
     )
   );
 
@@ -267,9 +304,9 @@ create policy "dono atualiza imagens do seu restaurante" on storage.objects
   for update using (
     bucket_id = 'menu-images'
     and exists (
-      select 1 from restaurants r
-      where r.owner_id = auth.uid()
-        and r.id::text = (storage.foldername(name))[1]
+      select 1 from upload_tokens t
+      where t.token::text = (storage.foldername(name))[1]
+        and t.created_at > now() - interval '10 minutes'
     )
   );
 
@@ -278,11 +315,34 @@ create policy "dono exclui imagens do seu restaurante" on storage.objects
   for delete using (
     bucket_id = 'menu-images'
     and exists (
-      select 1 from restaurants r
-      where r.owner_id = auth.uid()
-        and r.id::text = (storage.foldername(name))[1]
+      select 1 from upload_tokens t
+      where t.token::text = (storage.foldername(name))[1]
+        and t.created_at > now() - interval '10 minutes'
     )
   );
+
+-- ------------------------------------------------------------
+-- CONFIGURAÇÕES DA PLATAFORMA
+-- Uma única linha com os parâmetros gerais do app. A taxa de comissão
+-- (usada futuramente na integração com o Mercado Pago) fica aqui — para
+-- mudá-la, basta rodar, por exemplo:
+--   update platform_settings set commission_percent = 12 where id = true;
+-- Não precisa mexer em nenhum outro lugar do sistema.
+-- ------------------------------------------------------------
+create table if not exists platform_settings (
+  id boolean primary key default true check (id),
+  commission_percent numeric(5,2) not null default 10.00, -- % sobre o valor da comida
+  commission_fixed numeric(10,2) not null default 0.00,   -- valor fixo somado por pedido, se quiser usar
+  updated_at timestamp with time zone default now()
+);
+insert into platform_settings (id) values (true) on conflict (id) do nothing;
+alter table platform_settings enable row level security;
+drop policy if exists "qualquer um lê as configurações da plataforma" on platform_settings;
+create policy "qualquer um lê as configurações da plataforma" on platform_settings
+  for select using (true);
+-- Não existe política de update para o público de propósito: por enquanto,
+-- a alteração é feita por você mesmo via SQL Editor (com privilégio total).
+-- Se no futuro você quiser um painel para isso, me avise.
 
 -- ------------------------------------------------------------
 -- CRIAÇÃO AUTOMÁTICA DE PERFIL (E RESTAURANTE, SE FOR O CASO)

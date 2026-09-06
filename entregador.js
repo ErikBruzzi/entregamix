@@ -92,7 +92,7 @@
           <div><div class="label">Entregar em</div>${d.address}</div>
         </div>
         <div class="row">
-          <span class="fee-tag">Pedido: R$ ${Number(d.total).toFixed(2).replace(".", ",")}</span>
+          <span class="fee-tag">Você ganha: R$ ${Number(d.deliveryFee ?? 0).toFixed(2).replace(".", ",")}${d.distanceKm ? ` · ${d.distanceKm} km` : ""}</span>
           <button class="primary-btn green" style="width:auto; padding:10px 18px;" data-action="claim">Aceitar corrida</button>
         </div>
       </div>`
@@ -151,7 +151,7 @@
       <div class="delivery-card" data-id="${d.id}">
         <div class="row">
           <span class="status-badge status-${d.status}">${statusLabel[d.status] || d.status}</span>
-          <span class="fee-tag">R$ ${Number(d.total).toFixed(2).replace(".", ",")}</span>
+          <span class="fee-tag">R$ ${Number(d.deliveryFee ?? 0).toFixed(2).replace(".", ",")}</span>
         </div>
         <div class="stop pickup">
           <div class="dot"></div>
