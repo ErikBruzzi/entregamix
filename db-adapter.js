@@ -310,8 +310,12 @@
       async uploadMenuImage(restaurantId, file) {
         const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
         const path = restaurantId + "/" + Date.now() + "." + ext;
+        // upsert:false porque o nome do arquivo já é único (baseado no horário);
+        // nunca existe um arquivo para sobrescrever, então evitamos a checagem
+        // interna de "já existe?" que em alguns projetos do Supabase esbarra
+        // em RLS mesmo com a política de leitura correta.
         const { error } = await client.storage.from("menu-images").upload(path, file, {
-          upsert: true,
+          upsert: false,
           cacheControl: "3600",
         });
         if (error) throw error;
