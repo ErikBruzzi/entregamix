@@ -144,7 +144,7 @@
           <div class="name">${r.name}</div>
           <div class="meta">
             <span class="chip">${r.category || "Variado"}</span>
-            <span>${r.etaMinutes} min · Entrega R$ ${Number(r.deliveryFee).toFixed(2).replace(".", ",")}</span>
+            <span>${r.etaMinutes} min · Entrega a partir de R$ ${Number(r.deliveryBaseFee).toFixed(2).replace(".", ",")}</span>
           </div>
         </div>
       </div>`
@@ -216,7 +216,7 @@
 
   function cartTotal() {
     const subtotal = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
-    const fee = activeRestaurant ? Number(activeRestaurant.deliveryFee) : 0;
+    const fee = calculatedDelivery ? calculatedDelivery.fee : 0;
     return { subtotal, fee, total: subtotal + fee };
   }
 
@@ -226,7 +226,7 @@
       content.innerHTML = '<div class="empty-state">Seu carrinho está vazio.<br>Escolha um restaurante para começar.</div>';
       return;
     }
-    const { subtotal, fee, total } = cartTotal();
+    const { subtotal } = cartTotal();
     content.innerHTML =
       cart
         .map(
@@ -246,8 +246,7 @@
         .join("") +
       `
       <div class="totals-row"><span>Subtotal</span><span>R$ ${subtotal.toFixed(2).replace(".", ",")}</span></div>
-      <div class="totals-row"><span>Taxa de entrega</span><span>R$ ${fee.toFixed(2).replace(".", ",")}</span></div>
-      <div class="totals-row grand"><span>Total</span><span>R$ ${total.toFixed(2).replace(".", ",")}</span></div>
+      <div class="totals-row" style="color:var(--ink-soft); font-size:12px;"><span>Taxa de entrega</span><span>Calculada na próxima etapa, por distância</span></div>
       <button class="primary-btn" id="goCheckoutBtn">Ir para o endereço</button>
     `;
     content.querySelectorAll("[data-op]").forEach((btn) => {
@@ -268,16 +267,67 @@
       });
   }
 
-  /* ---------------- CHECKOUT ---------------- */
+  /* ---------------- CHECKOUT (com cálculo de frete por distância) ---------------- */
+  let calculatedDelivery = null; // { fee, distanceKm, durationMin }
+
   function renderCheckout() {
-    const { total } = cartTotal();
+    calculatedDelivery = null;
+    $("deliveryEstimate").innerHTML = "";
+    $("checkoutFee").textContent = "—";
+    $("confirmOrderBtn").disabled = true;
+    $("confirmOrderBtn").textContent = "Calcule o frete para continuar";
+    updateCheckoutTotals();
+  }
+
+  function updateCheckoutTotals() {
+    const { subtotal, fee, total } = cartTotal();
+    $("checkoutSubtotal").textContent = "R$ " + subtotal.toFixed(2).replace(".", ",");
+    $("checkoutFee").textContent = calculatedDelivery ? "R$ " + fee.toFixed(2).replace(".", ",") : "—";
     $("checkoutTotal").textContent = "R$ " + total.toFixed(2).replace(".", ",");
   }
 
+  $("calcFeeBtn").addEventListener("click", async () => {
+    const address = $("checkoutAddress").value.trim();
+    if (!address) return alert("Digite o endereço de entrega primeiro.");
+    const btn = $("calcFeeBtn");
+    btn.disabled = true;
+    btn.textContent = "Calculando...";
+    $("deliveryEstimate").innerHTML = "";
+    try {
+      const result = await window.DB.calculateDeliveryFee(activeRestaurant.id, address);
+      calculatedDelivery = result;
+      $("deliveryEstimate").innerHTML =
+        `<div class="delivery-estimate">📍 <strong>${result.distanceKm} km</strong> do restaurante · chegada em cerca de <strong>${result.durationMin} min</strong></div>`;
+      $("confirmOrderBtn").disabled = false;
+      $("confirmOrderBtn").textContent = "Confirmar pedido";
+      updateCheckoutTotals();
+    } catch (err) {
+      calculatedDelivery = null;
+      $("deliveryEstimate").innerHTML = `<div class="delivery-estimate" style="color:var(--red-dark);">${(err && err.message) || err}</div>`;
+      $("confirmOrderBtn").disabled = true;
+      $("confirmOrderBtn").textContent = "Calcule o frete para continuar";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Calcular frete";
+    }
+  });
+
+  // Se o cliente mudar o endereço depois de calcular, invalida o frete
+  // calculado anteriormente para evitar cobrar a distância errada.
+  $("checkoutAddress").addEventListener("input", () => {
+    if (calculatedDelivery) {
+      calculatedDelivery = null;
+      $("deliveryEstimate").innerHTML = "";
+      $("confirmOrderBtn").disabled = true;
+      $("confirmOrderBtn").textContent = "Calcule o frete para continuar";
+      updateCheckoutTotals();
+    }
+  });
+
   $("confirmOrderBtn").addEventListener("click", async () => {
     const address = $("checkoutAddress").value.trim();
-    if (!address) return alert("Informe o endereço de entrega.");
-    const { total } = cartTotal();
+    if (!address || !calculatedDelivery) return alert("Calcule o frete antes de confirmar.");
+    const { subtotal, fee, total } = cartTotal();
     const btn = $("confirmOrderBtn");
     btn.disabled = true;
     btn.textContent = "Enviando pedido...";
@@ -286,11 +336,15 @@
         restaurantId: activeRestaurant.id,
         items: cart,
         address,
+        foodSubtotal: subtotal,
+        deliveryFee: fee,
+        deliveryDistanceKm: calculatedDelivery.distanceKm,
         total,
       });
       cart = [];
       updateCartBadge();
       $("checkoutAddress").value = "";
+      calculatedDelivery = null;
       await loadOrders();
       showScreen("orders");
     } catch (err) {
