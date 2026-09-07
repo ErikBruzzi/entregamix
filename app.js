@@ -288,13 +288,15 @@
 
   $("calcFeeBtn").addEventListener("click", async () => {
     const address = $("checkoutAddress").value.trim();
+    const city = $("checkoutCity").value.trim();
     if (!address) return alert("Digite o endereço de entrega primeiro.");
+    if (!city) return alert("Digite a cidade de entrega — sem isso o cálculo de distância fica impreciso.");
     const btn = $("calcFeeBtn");
     btn.disabled = true;
     btn.textContent = "Calculando...";
     $("deliveryEstimate").innerHTML = "";
     try {
-      const result = await window.DB.calculateDeliveryFee(activeRestaurant.id, address);
+      const result = await window.DB.calculateDeliveryFee(activeRestaurant.id, address, city);
       calculatedDelivery = result;
       $("deliveryEstimate").innerHTML =
         `<div class="delivery-estimate">📍 <strong>${result.distanceKm} km</strong> do restaurante · chegada em cerca de <strong>${result.durationMin} min</strong></div>`;
@@ -312,9 +314,9 @@
     }
   });
 
-  // Se o cliente mudar o endereço depois de calcular, invalida o frete
-  // calculado anteriormente para evitar cobrar a distância errada.
-  $("checkoutAddress").addEventListener("input", () => {
+  // Se o cliente mudar o endereço ou a cidade depois de calcular, invalida o
+  // frete calculado anteriormente para evitar cobrar a distância errada.
+  function invalidateDeliveryEstimate() {
     if (calculatedDelivery) {
       calculatedDelivery = null;
       $("deliveryEstimate").innerHTML = "";
@@ -322,11 +324,14 @@
       $("confirmOrderBtn").textContent = "Calcule o frete para continuar";
       updateCheckoutTotals();
     }
-  });
+  }
+  $("checkoutAddress").addEventListener("input", invalidateDeliveryEstimate);
+  $("checkoutCity").addEventListener("input", invalidateDeliveryEstimate);
 
   $("confirmOrderBtn").addEventListener("click", async () => {
     const address = $("checkoutAddress").value.trim();
-    if (!address || !calculatedDelivery) return alert("Calcule o frete antes de confirmar.");
+    const city = $("checkoutCity").value.trim();
+    if (!address || !city || !calculatedDelivery) return alert("Calcule o frete antes de confirmar.");
     const { subtotal, fee, total } = cartTotal();
     const btn = $("confirmOrderBtn");
     btn.disabled = true;
@@ -336,6 +341,7 @@
         restaurantId: activeRestaurant.id,
         items: cart,
         address,
+        deliveryCity: city,
         foodSubtotal: subtotal,
         deliveryFee: fee,
         deliveryDistanceKm: calculatedDelivery.distanceKm,
@@ -344,6 +350,7 @@
       cart = [];
       updateCartBadge();
       $("checkoutAddress").value = "";
+      $("checkoutCity").value = "";
       calculatedDelivery = null;
       await loadOrders();
       showScreen("orders");

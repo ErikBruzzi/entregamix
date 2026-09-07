@@ -69,6 +69,11 @@
 
   /* ---------------- ENTREGAS DISPONÍVEIS ---------------- */
   async function loadAvailable() {
+    if (!profile.city) {
+      $("availableList").innerHTML =
+        '<div class="empty-state">Defina sua cidade de atuação na aba "Conta" para começar a ver corridas disponíveis.</div>';
+      return;
+    }
     const list = await window.DB.getAvailableDeliveries();
     renderAvailable(list);
   }
@@ -263,7 +268,25 @@
       <div style="color:var(--ink-soft); font-size:14px; margin-top:4px;">${profile.email || ""}</div>
       <div style="color:var(--ink-soft); font-size:14px;">${profile.phone || "Telefone não informado"}</div>
     `;
+    $("myCity").value = profile.city || "";
   }
+
+  $("cityForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const city = $("myCity").value.trim();
+    if (!city) return;
+    try {
+      await window.DB.updateProfile(currentUser.id, { city });
+      profile.city = city;
+      const msg = $("citySaveMsg");
+      msg.style.display = "block";
+      setTimeout(() => (msg.style.display = "none"), 2500);
+      // A cidade mudou: recarrega a lista de disponíveis para refletir o filtro novo.
+      if ($("panel-available").classList.contains("active")) loadAvailable();
+    } catch (err) {
+      alert("Não foi possível salvar: " + ((err && err.message) || err));
+    }
+  });
 
   /* ---------------- INICIALIZAÇÃO ---------------- */
   function showDashboard() {

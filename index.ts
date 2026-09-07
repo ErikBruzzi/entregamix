@@ -1,6 +1,6 @@
 // Edge Function: calculate-delivery-fee
 // ---------------------------------------------------------------
-// Recebe { restaurantId, address } e devolve { distanceKm, durationMin, fee }.
+// Recebe { restaurantId, address, city } e devolve { distanceKm, durationMin, fee }.
 //
 // Usa a LocationIQ (baseada no OpenStreetMap) em vez do Google Maps —
 // tem plano gratuito generoso e não exige cadastrar cartão de crédito.
@@ -10,15 +10,18 @@
 // Fluxo:
 //   1. Busca o restaurante no banco (usando a service role key, que tem
 //      acesso total e só existe aqui no servidor, nunca no site).
-//   2. Se o restaurante ainda não tem lat/lng guardados, geocodifica o
-//      endereço dele UMA vez e salva no banco (assim, nas próximas vezes,
-//      pulamos essa etapa e a resposta fica mais rápida).
-//   3. Geocodifica o endereço de entrega informado pelo cliente.
+//   2. Se o restaurante ainda não tem lat/lng guardados, geocodifica
+//      "endereço + cidade" dele UMA vez e salva no banco.
+//   3. Geocodifica "endereço + cidade" informados pelo cliente.
 //   4. Pergunta à LocationIQ a distância de carro entre os dois pontos.
-//   5. Calcula: taxa = taxa_base + preço_por_km × distância_km.
+//   5. Se a distância vier maior que MAX_DISTANCIA_KM, recusa — é sinal
+//      de que a busca encontrou um lugar errado (endereço ambíguo).
+//   6. Calcula: taxa = taxa_base + preço_por_km × distância_km.
 // ---------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const MAX_DISTANCIA_KM = 60; // acima disso, quase certamente é erro de geocodificação
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,17 +35,19 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-async function geocode(address: string, apiKey: string) {
+async function geocode(address: string, city: string | null, apiKey: string) {
+  const fullQuery = city ? address + ", " + city : address;
   const url =
     "https://us1.locationiq.com/v1/search?key=" +
     apiKey +
     "&q=" +
-    encodeURIComponent(address) +
+    encodeURIComponent(fullQuery) +
+    "&countrycodes=br" + // restringe a busca ao Brasil, evita achar endereço em outro país
     "&format=json&limit=1";
   const res = await fetch(url);
   const data = await res.json();
   if (!res.ok || !Array.isArray(data) || !data.length) {
-    throw new Error("Não foi possível localizar o endereço: " + address);
+    throw new Error("Não foi possível localizar o endereço: " + fullQuery + ". Confira se a cidade está certa.");
   }
   return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
 }
@@ -75,9 +80,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { restaurantId, address } = await req.json();
+    const { restaurantId, address, city } = await req.json();
     if (!restaurantId || !address) {
       return jsonResponse({ error: "Informe restaurantId e address." }, 400);
+    }
+    if (!city || !String(city).trim()) {
+      return jsonResponse({ error: "Informe a cidade de entrega para calcular o frete com precisão." }, 400);
     }
 
     const LOCATIONIQ_API_KEY = Deno.env.get("LOCATIONIQ_API_KEY");
@@ -92,7 +100,7 @@ Deno.serve(async (req) => {
 
     const { data: restaurant, error: fetchError } = await supabase
       .from("restaurants")
-      .select("id, address, lat, lng, delivery_base_fee, delivery_price_per_km")
+      .select("id, address, city, lat, lng, delivery_base_fee, delivery_price_per_km")
       .eq("id", restaurantId)
       .single();
     if (fetchError || !restaurant) {
@@ -104,13 +112,25 @@ Deno.serve(async (req) => {
       if (!restaurant.address) {
         return jsonResponse({ error: "Este restaurante ainda não tem um endereço cadastrado." }, 400);
       }
-      origin = await geocode(restaurant.address, LOCATIONIQ_API_KEY);
+      origin = await geocode(restaurant.address, restaurant.city, LOCATIONIQ_API_KEY);
       // Guarda para as próximas vezes não precisarem geocodificar de novo.
       await supabase.from("restaurants").update({ lat: origin.lat, lng: origin.lng }).eq("id", restaurantId);
     }
 
-    const destination = await geocode(address, LOCATIONIQ_API_KEY);
+    const destination = await geocode(address, city, LOCATIONIQ_API_KEY);
     const { distanceKm, durationMin } = await drivingDistance(origin, destination, LOCATIONIQ_API_KEY);
+
+    if (distanceKm > MAX_DISTANCIA_KM) {
+      return jsonResponse(
+        {
+          error:
+            "O endereço informado parece estar a " +
+            Math.round(distanceKm) +
+            " km do restaurante, o que é longe demais. Confira se digitou a rua e a cidade corretamente.",
+        },
+        422
+      );
+    }
 
     const baseFee = Number(restaurant.delivery_base_fee ?? 5);
     const pricePerKm = Number(restaurant.delivery_price_per_km ?? 1.5);

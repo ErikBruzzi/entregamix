@@ -18,6 +18,7 @@ create table if not exists profiles (
   created_at timestamp with time zone default now()
 );
 alter table profiles add column if not exists role text not null default 'cliente';
+alter table profiles add column if not exists city text;
 
 create table if not exists restaurants (
   id uuid primary key default gen_random_uuid(),
@@ -32,6 +33,7 @@ create table if not exists restaurants (
 );
 alter table restaurants add column if not exists owner_id uuid references auth.users (id) on delete set null;
 alter table restaurants add column if not exists address text;
+alter table restaurants add column if not exists city text;
 alter table restaurants add column if not exists lat double precision;
 alter table restaurants add column if not exists lng double precision;
 alter table restaurants add column if not exists delivery_base_fee numeric(10,2) default 5.00;
@@ -68,6 +70,7 @@ alter table orders add column if not exists pickup_code text;
 alter table orders add column if not exists food_subtotal numeric(10,2);
 alter table orders add column if not exists delivery_fee numeric(10,2);
 alter table orders add column if not exists delivery_distance_km numeric(10,2);
+alter table orders add column if not exists delivery_city text;
 comment on column orders.delivery_fee is 'Valor calculado por distância, exclusivo da entrega — é este valor (não o total) que será repassado ao entregador quando o pagamento for implementado.';
 
 create table if not exists order_items (
@@ -196,7 +199,20 @@ create policy "dono do restaurante atualiza pedidos do seu restaurante" on order
 drop policy if exists "entregador vê pedidos disponíveis e os seus" on orders;
 create policy "entregador vê pedidos disponíveis e os seus" on orders
   for select using (
-    (status = 'pronto' and courier_id is null) or courier_id = auth.uid()
+    (
+      status = 'pronto'
+      and courier_id is null
+      and exists (
+        select 1
+        from restaurants r
+        join profiles p on p.id = auth.uid()
+        where r.id = orders.restaurant_id
+          and p.city is not null
+          and r.city is not null
+          and lower(trim(r.city)) = lower(trim(p.city))
+      )
+    )
+    or courier_id = auth.uid()
   );
 
 -- Esta política permite tanto o "aceite" (courier_id estava nulo, passa a ser o entregador)
@@ -206,7 +222,19 @@ create policy "entregador vê pedidos disponíveis e os seus" on orders
 drop policy if exists "entregador aceita e atualiza seus pedidos" on orders;
 create policy "entregador aceita e atualiza seus pedidos" on orders
   for update using (
-    courier_id is null or courier_id = auth.uid()
+    (
+      courier_id is null
+      and exists (
+        select 1
+        from restaurants r
+        join profiles p on p.id = auth.uid()
+        where r.id = orders.restaurant_id
+          and p.city is not null
+          and r.city is not null
+          and lower(trim(r.city)) = lower(trim(p.city))
+      )
+    )
+    or courier_id = auth.uid()
   ) with check (
     courier_id = auth.uid()
   );
@@ -357,25 +385,29 @@ set search_path = public
 as $$
 declare
   chosen_role text;
+  chosen_city text;
 begin
   chosen_role := coalesce(new.raw_user_meta_data->>'role', 'cliente');
+  chosen_city := nullif(new.raw_user_meta_data->>'city', '');
 
-  insert into public.profiles (id, name, email, phone, role)
+  insert into public.profiles (id, name, email, phone, role, city)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'name', ''),
     new.email,
     coalesce(new.raw_user_meta_data->>'phone', ''),
-    chosen_role
+    chosen_role,
+    chosen_city
   )
   on conflict (id) do nothing;
 
   if chosen_role = 'restaurante' then
-    insert into public.restaurants (owner_id, name, category, eta_minutes, delivery_fee, active)
+    insert into public.restaurants (owner_id, name, category, city, eta_minutes, delivery_fee, active)
     values (
       new.id,
       coalesce(nullif(new.raw_user_meta_data->>'name', ''), 'Meu restaurante'),
       'Geral',
+      chosen_city,
       30,
       0,
       true

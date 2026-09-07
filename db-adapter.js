@@ -79,11 +79,11 @@
 
     return {
       /* ---------- CONTA / SESSÃO ---------- */
-      async signUp({ name, email, phone, password, role }) {
+      async signUp({ name, email, phone, password, role, city }) {
         const { data, error } = await client.auth.signUp({
           email,
           password,
-          options: { data: { name, phone, role: role || "cliente" } },
+          options: { data: { name, phone, role: role || "cliente", city: city || null } },
         });
         if (error) throw error;
         return { user: data.user };
@@ -113,7 +113,7 @@
       async getProfile(userId) {
         const { data, error } = await client
           .from("profiles")
-          .select("name, email, phone, address, role")
+          .select("name, email, phone, address, role, city")
           .eq("id", userId)
           .maybeSingle();
         if (error) throw error;
@@ -146,19 +146,20 @@
       async getRestaurants() {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, eta_minutes, delivery_base_fee")
+          .select("id, name, category, city, eta_minutes, delivery_base_fee")
           .eq("active", true);
         if (error) throw error;
         return (data || []).map((r) => ({
           id: r.id,
           name: r.name,
           category: r.category,
+          city: r.city,
           etaMinutes: r.eta_minutes,
           deliveryBaseFee: r.delivery_base_fee,
         }));
       },
 
-      async calculateDeliveryFee(restaurantId, address) {
+      async calculateDeliveryFee(restaurantId, address, city) {
         const res = await fetch(config.SUPABASE_URL + "/functions/v1/calculate-delivery-fee", {
           method: "POST",
           headers: {
@@ -166,7 +167,7 @@
             apikey: config.SUPABASE_ANON_KEY,
             Authorization: "Bearer " + config.SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ restaurantId, address }),
+          body: JSON.stringify({ restaurantId, address, city }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Não foi possível calcular a taxa de entrega.");
@@ -189,7 +190,7 @@
         }));
       },
 
-      async createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
+      async createOrder({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
         const session = await this.getSession();
         const userId = session ? session.user.id : null;
         const { data, error } = await client
@@ -198,6 +199,7 @@
             user_id: userId,
             restaurant_id: restaurantId,
             address,
+            delivery_city: deliveryCity,
             food_subtotal: foodSubtotal,
             delivery_fee: deliveryFee,
             delivery_distance_km: deliveryDistanceKm,
@@ -247,7 +249,7 @@
       async getMyRestaurant(ownerId) {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, address, eta_minutes, delivery_base_fee, delivery_price_per_km, active")
+          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active")
           .eq("owner_id", ownerId)
           .maybeSingle();
         if (error) throw error;
@@ -257,6 +259,7 @@
           name: data.name,
           category: data.category,
           address: data.address,
+          city: data.city,
           etaMinutes: data.eta_minutes,
           deliveryBaseFee: data.delivery_base_fee,
           deliveryPricePerKm: data.delivery_price_per_km,
@@ -272,6 +275,12 @@
           payload.address = updates.address;
           // Endereço mudou: limpa as coordenadas guardadas para forçar uma
           // nova geocodificação na próxima vez que alguém calcular o frete.
+          payload.lat = null;
+          payload.lng = null;
+        }
+        if (updates.city !== undefined) {
+          payload.city = updates.city;
+          // Cidade também afeta a geocodificação — limpa por segurança.
           payload.lat = null;
           payload.lng = null;
         }
@@ -596,7 +605,7 @@
         authListeners.push(cb);
       },
       async getProfile() {
-        return profile || { name: "", email: "", phone: "", address: "", role: "cliente" };
+        return profile || { name: "", email: "", phone: "", address: "", role: "cliente", city: null };
       },
       async updateProfile(_userId, updates) {
         profile = { ...profile, ...updates };
@@ -606,7 +615,7 @@
       async getRestaurants() {
         return demoRestaurants.filter((r) => r.active);
       },
-      async calculateDeliveryFee(restaurantId, address) {
+      async calculateDeliveryFee(restaurantId, address, _city) {
         // Sem Google Maps no modo demo: gera uma distância plausível a
         // partir do texto do endereço, só para simular a experiência.
         const restaurant = demoRestaurants.find((r) => r.id === restaurantId);
@@ -619,7 +628,7 @@
       async getMenu(restaurantId) {
         return (demoMenus[restaurantId] || []).filter((m) => m.available);
       },
-      async createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
+      async createOrder({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
         const restaurant = demoRestaurants.find((r) => r.id === restaurantId);
         const order = {
           id: "o" + idCounter++,
@@ -632,6 +641,7 @@
           foodSubtotal,
           deliveryFee,
           deliveryDistanceKm,
+          deliveryCity,
           createdAt: new Date().toISOString(),
           items,
           address,

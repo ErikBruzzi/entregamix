@@ -79,6 +79,7 @@
     $("settName").value = myRestaurant.name || "";
     $("settCategory").value = myRestaurant.category || "";
     $("settAddress").value = myRestaurant.address || "";
+    $("settCity").value = myRestaurant.city || "";
     $("settEta").value = myRestaurant.etaMinutes || 30;
     $("settBaseFee").value = myRestaurant.deliveryBaseFee ?? 5;
     $("settPerKm").value = myRestaurant.deliveryPricePerKm ?? 1.5;
@@ -92,6 +93,7 @@
         name: $("settName").value.trim(),
         category: $("settCategory").value.trim(),
         address: $("settAddress").value.trim(),
+        city: $("settCity").value.trim(),
         etaMinutes: parseInt($("settEta").value, 10),
         deliveryBaseFee: parseFloat($("settBaseFee").value),
         deliveryPricePerKm: parseFloat($("settPerKm").value),

@@ -129,7 +129,18 @@
 
     <div class="panel" id="panel-account">
       <div class="profile-box" id="profileBox"></div>
-      <button class="primary-btn ink" id="logoutBtn">Sair da conta</button>
+      <form id="cityForm">
+        <div class="field">
+          <label>Cidade de atuação</label>
+          <input type="text" id="myCity" placeholder="Ex: Ponte Nova" required />
+        </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin-top:-8px; margin-bottom:14px;">
+          Você só vê corridas disponíveis de restaurantes cadastrados nesta mesma cidade.
+        </p>
+        <button type="submit" class="primary-btn green">Salvar cidade</button>
+        <p class="error-msg" id="citySaveMsg" style="color:var(--green-dark); display:none;">Cidade salva com sucesso.</p>
+      </form>
+      <button class="primary-btn ink" style="margin-top:16px;" id="logoutBtn">Sair da conta</button>
     </div>
   </div>
 </div>
