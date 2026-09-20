@@ -79,8 +79,20 @@
         const name = $("authName").value.trim();
         const phone = $("authPhone").value.trim();
         const role = $("authRole").value;
-        const { user } = await window.DB.signUp({ name, email, phone, password, role });
+        const { user, session } = await window.DB.signUp({ name, email, phone, password, role });
         currentUser = user;
+
+        if (!session) {
+          // Conta criada com sucesso, mas o projeto exige confirmação de
+          // e-mail — ainda não existe login ativo. Não tenta buscar nada
+          // autenticado; só avisa e volta para a tela de login.
+          $("authForm").reset();
+          authMode = "signin";
+          updateAuthUI();
+          alert("Conta criada! Verifique seu e-mail para confirmar antes de entrar.");
+          btn.disabled = false;
+          return;
+        }
       } else {
         const { user } = await window.DB.signIn({ email, password });
         currentUser = user;

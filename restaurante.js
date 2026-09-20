@@ -37,9 +37,20 @@
     errBox.style.display = "none";
     try {
       let user;
+      let session;
       if (gateMode === "signup") {
         const name = $("gateName").value.trim();
-        ({ user } = await window.DB.signUp({ name, email, phone: "", password, role: "restaurante" }));
+        ({ user, session } = await window.DB.signUp({ name, email, phone: "", password, role: "restaurante" }));
+
+        if (!session) {
+          // Conta e restaurante já foram criados no banco, mas o projeto
+          // exige confirmação de e-mail — ainda não existe login ativo.
+          $("loginForm").reset();
+          gateMode = "signin";
+          updateGateUI();
+          alert("Conta criada! Verifique seu e-mail para confirmar antes de entrar.");
+          return;
+        }
       } else {
         ({ user } = await window.DB.signIn({ email, password }));
       }

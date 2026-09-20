@@ -7,7 +7,11 @@
 
   Contrato da interface window.DB (todas as funções são assíncronas):
     Conta / sessão:
-    - signUp({ name, email, phone, password, role })  -> { user }
+    - signUp({ name, email, phone, password, role, city }) -> { user, session }
+      session vem null se o projeto exigir confirmação de e-mail — nesse caso
+      NÃO faça nenhuma chamada autenticada em seguida (getProfile, etc.), pois
+      ainda não existe login ativo. Mostre uma mensagem de sucesso e volte
+      para a tela de login.
     - signIn({ email, password })                      -> { user }
     - signOut()                                        -> void
     - getSession()                                     -> { user } | null
@@ -86,7 +90,9 @@
           options: { data: { name, phone, role: role || "cliente", city: city || null } },
         });
         if (error) throw error;
-        return { user: data.user };
+        // Se data.session vier vazio, o Supabase está exigindo confirmação de
+        // e-mail: a conta já foi criada, mas ainda não existe login ativo.
+        return { user: data.user, session: data.session };
       },
 
       async signIn({ email, password }) {
@@ -586,7 +592,7 @@
           demoMenus["r-demo"] = [];
         }
         authListeners.forEach((cb) => cb(currentUser));
-        return { user: currentUser };
+        return { user: currentUser, session: { user: currentUser } };
       },
       async signIn({ email }) {
         currentUser = { id: "demo-user", email };
