@@ -96,7 +96,42 @@
     $("settBaseFee").value = myRestaurant.deliveryBaseFee ?? 5;
     $("settPerKm").value = myRestaurant.deliveryPricePerKm ?? 1.5;
     $("settActive").checked = !!myRestaurant.active;
+    renderRestaurantIcon();
   }
+
+  function renderRestaurantIcon() {
+    const img = $("restaurantIconPreview");
+    const placeholder = $("restaurantIconPlaceholder");
+    if (myRestaurant.imageUrl) {
+      img.src = myRestaurant.imageUrl;
+      img.style.display = "block";
+      placeholder.style.display = "none";
+    } else {
+      img.style.display = "none";
+      placeholder.style.display = "flex";
+    }
+  }
+
+  $("restaurantIconBtn").addEventListener("click", () => $("restaurantIconInput").click());
+  $("restaurantIconInput").addEventListener("change", async () => {
+    const file = $("restaurantIconInput").files[0];
+    if (!file) return;
+    const btn = $("restaurantIconBtn");
+    btn.disabled = true;
+    btn.textContent = "Enviando...";
+    try {
+      const imageUrl = await window.DB.uploadMenuImage(myRestaurant.id, file);
+      await window.DB.updateMyRestaurant(myRestaurant.id, { imageUrl });
+      myRestaurant = { ...myRestaurant, imageUrl };
+      renderRestaurantIcon();
+    } catch (err) {
+      alert("Não foi possível enviar a imagem: " + ((err && err.message) || err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Escolher imagem";
+      $("restaurantIconInput").value = "";
+    }
+  });
 
   $("settingsForm").addEventListener("submit", async (e) => {
     e.preventDefault();

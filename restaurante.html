@@ -137,6 +137,16 @@
     </div>
 
     <div class="panel active" id="panel-settings">
+      <div class="field" style="margin-bottom:20px;">
+        <label>Ícone do restaurante (aparece no menu principal do app)</label>
+        <div style="display:flex; align-items:center; gap:14px; margin-top:8px;">
+          <img id="restaurantIconPreview" alt="Ícone do restaurante" style="width:64px; height:64px; border-radius:14px; object-fit:cover; display:none;" />
+          <div id="restaurantIconPlaceholder" style="width:64px; height:64px; border-radius:14px; background:#f0f0f0; display:flex; align-items:center; justify-content:center; font-size:26px;">🍴</div>
+          <button type="button" class="secondary-btn" id="restaurantIconBtn">Escolher imagem</button>
+          <input type="file" accept="image/*" id="restaurantIconInput" style="display:none;" />
+        </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin-top:8px;">Recomendado: imagem quadrada de 512x512 pixels.</p>
+      </div>
       <form id="settingsForm">
         <div class="field"><label>Nome do restaurante</label><input type="text" id="settName" required /></div>
         <div class="field"><label>Categoria</label><input type="text" id="settCategory" placeholder="Ex: Pizzas, Brasileira, Sobremesas" /></div>

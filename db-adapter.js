@@ -200,7 +200,7 @@
       async getRestaurants() {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, city, eta_minutes, delivery_base_fee")
+          .select("id, name, category, city, eta_minutes, delivery_base_fee, image_url")
           .eq("active", true);
         if (error) throw error;
         return (data || []).map((r) => ({
@@ -210,6 +210,7 @@
           city: r.city,
           etaMinutes: r.eta_minutes,
           deliveryBaseFee: r.delivery_base_fee,
+          imageUrl: r.image_url,
         }));
       },
 
@@ -364,7 +365,7 @@
       async getMyRestaurant(ownerId) {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active, balance, pix_key, pix_key_type, pix_owner_document")
+          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active, balance, pix_key, pix_key_type, pix_owner_document, image_url")
           .eq("owner_id", ownerId)
           .maybeSingle();
         if (error) throw error;
@@ -383,6 +384,7 @@
           pixKey: data.pix_key,
           pixKeyType: data.pix_key_type,
           pixOwnerDocument: data.pix_owner_document,
+          imageUrl: data.image_url,
         };
       },
 
@@ -410,6 +412,7 @@
         if (updates.pixKey !== undefined) payload.pix_key = updates.pixKey;
         if (updates.pixKeyType !== undefined) payload.pix_key_type = updates.pixKeyType;
         if (updates.pixOwnerDocument !== undefined) payload.pix_owner_document = updates.pixOwnerDocument;
+        if (updates.imageUrl !== undefined) payload.image_url = updates.imageUrl;
         const { data, error } = await client
           .from("restaurants")
           .update(payload)

@@ -151,7 +151,11 @@
       .map(
         (r) => `
       <div class="restaurant-card" data-id="${r.id}">
-        <div class="restaurant-thumb" style="background:${colorFor(r.id)}">${r.name.charAt(0)}</div>
+        ${
+          r.imageUrl
+            ? `<img class="restaurant-thumb" src="${r.imageUrl}" alt="${r.name}" style="object-fit:cover;" />`
+            : `<div class="restaurant-thumb" style="background:${colorFor(r.id)}">${r.name.charAt(0)}</div>`
+        }
         <div class="restaurant-info">
           <div class="name">${r.name}</div>
           <div class="meta">
