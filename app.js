@@ -342,89 +342,137 @@
   $("checkoutAddress").addEventListener("input", invalidateDeliveryEstimate);
   $("checkoutCity").addEventListener("input", invalidateDeliveryEstimate);
 
-  /* ---------------- PAGAMENTO (STRIPE) ---------------- */
-  const stripe = window.Stripe && window.APP_CONFIG.STRIPE_PUBLISHABLE_KEY
-    ? window.Stripe(window.APP_CONFIG.STRIPE_PUBLISHABLE_KEY)
+  /* ---------------- PAGAMENTO (MERCADO PAGO) ---------------- */
+  const mp = window.MercadoPago && window.APP_CONFIG.MP_PUBLIC_KEY
+    ? new MercadoPago(window.APP_CONFIG.MP_PUBLIC_KEY, { locale: "pt-BR" })
     : null;
-  let stripeElements = null;
-  let pendingOrderId = null;
+  let paymentBrick = null;
 
   function resetPaymentSection() {
     $("paymentSection").style.display = "none";
-    $("paymentElement").innerHTML = "";
     $("paymentError").style.display = "none";
-    stripeElements = null;
-    pendingOrderId = null;
+    $("paymentError").textContent = "";
+    $("pixResult").style.display = "none";
+    $("pixResult").innerHTML = "";
+    if (paymentBrick) {
+      try { paymentBrick.unmount(); } catch (e) { /* já desmontado */ }
+      paymentBrick = null;
+    }
+  }
+
+  // Envia o pedido + os dados de pagamento (se houver) para a Edge Function,
+  // que de fato cria o pedido no banco e cobra no Mercado Pago.
+  async function submitOrder(formData) {
+    const address = $("checkoutAddress").value.trim();
+    const city = $("checkoutCity").value.trim();
+    const { subtotal, fee, total } = cartTotal();
+    return window.DB.createMpPayment({
+      restaurantId: activeRestaurant.id,
+      items: cart,
+      address,
+      deliveryCity: city,
+      foodSubtotal: subtotal,
+      deliveryFee: fee,
+      deliveryDistanceKm: calculatedDelivery.distanceKm,
+      total,
+      formData: formData || {},
+    });
   }
 
   $("confirmOrderBtn").addEventListener("click", async () => {
     const address = $("checkoutAddress").value.trim();
     const city = $("checkoutCity").value.trim();
     if (!address || !city || !calculatedDelivery) return alert("Calcule o frete antes de confirmar.");
-    const { subtotal, fee, total } = cartTotal();
-    const btn = $("confirmOrderBtn");
-    btn.disabled = true;
-    btn.textContent = "Preparando pagamento...";
-    try {
-      const { clientSecret, orderId } = await window.DB.createPaymentIntent({
-        restaurantId: activeRestaurant.id,
-        items: cart,
-        address,
-        deliveryCity: city,
-        foodSubtotal: subtotal,
-        deliveryFee: fee,
-        deliveryDistanceKm: calculatedDelivery.distanceKm,
-        total,
-      });
-      pendingOrderId = orderId;
 
-      if (!clientSecret) {
-        // Modo demonstração: não há Stripe de verdade, o pedido já foi
-        // criado direto. Pula a etapa de pagamento.
+    if (!mp) {
+      // Modo demonstração: não há Mercado Pago de verdade, o pedido já é
+      // criado direto como se o pagamento tivesse sido aprovado na hora.
+      const btn = $("confirmOrderBtn");
+      btn.disabled = true;
+      btn.textContent = "Processando...";
+      try {
+        await submitOrder({});
         await finishCheckout();
-        return;
+      } catch (err) {
+        alert("Não foi possível concluir o pedido: " + ((err && err.message) || err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Ir para pagamento";
       }
+      return;
+    }
 
-      // Monta o formulário de pagamento do Stripe dentro da tela de checkout.
-      stripeElements = stripe.elements({ clientSecret });
-      const paymentElement = stripeElements.create("payment");
-      paymentElement.mount("#paymentElement");
+    const { total } = cartTotal();
+    $("confirmOrderBtn").style.display = "none";
+    $("paymentSection").style.display = "block";
+    $("paymentError").style.display = "none";
 
-      btn.style.display = "none";
-      $("paymentSection").style.display = "block";
+    try {
+      paymentBrick = await mp.bricks().create("payment", "paymentElement", {
+        initialization: {
+          amount: total,
+          payer: { email: (currentUser && currentUser.email) || "" },
+        },
+        customization: {
+          paymentMethods: {
+            creditCard: "all",
+            debitCard: "all",
+            bankTransfer: "all", // inclui Pix
+          },
+        },
+        callbacks: {
+          onError: (error) => {
+            console.error(error);
+            $("paymentError").textContent = "Não foi possível carregar o formulário de pagamento.";
+            $("paymentError").style.display = "block";
+          },
+          onSubmit: ({ formData }) => {
+            return new Promise(async (resolve, reject) => {
+              $("paymentError").style.display = "none";
+              try {
+                const result = await submitOrder(formData);
+                if (result.status === "approved") {
+                  await finishCheckout();
+                } else if (result.qrCodeBase64) {
+                  // Pix: fica pendente até o cliente pagar o QR code; o
+                  // mp-webhook confirma o pagamento depois, em segundo plano.
+                  showPixResult(result.qrCode, result.qrCodeBase64);
+                } else if (result.status === "pending" || result.status === "in_process") {
+                  await finishCheckout();
+                  alert("Pagamento em análise. Você será avisado assim que for confirmado.");
+                } else {
+                  throw new Error("Pagamento não aprovado. Tente outra forma de pagamento.");
+                }
+                resolve();
+              } catch (err) {
+                $("paymentError").textContent = (err && err.message) || String(err);
+                $("paymentError").style.display = "block";
+                reject();
+              }
+            });
+          },
+        },
+      });
     } catch (err) {
       alert("Não foi possível iniciar o pagamento: " + ((err && err.message) || err));
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Ir para pagamento";
+      $("confirmOrderBtn").style.display = "block";
+      $("paymentSection").style.display = "none";
     }
   });
 
-  $("payBtn").addEventListener("click", async () => {
-    const payBtn = $("payBtn");
-    const errBox = $("paymentError");
-    errBox.style.display = "none";
-    payBtn.disabled = true;
-    payBtn.textContent = "Processando pagamento...";
-    try {
-      const { error } = await stripe.confirmPayment({
-        elements: stripeElements,
-        redirect: "if_required",
-      });
-      if (error) {
-        errBox.textContent = error.message || "Não foi possível confirmar o pagamento.";
-        errBox.style.display = "block";
-        return;
-      }
-      await finishCheckout();
-    } catch (err) {
-      errBox.textContent = (err && err.message) || String(err);
-      errBox.style.display = "block";
-    } finally {
-      payBtn.disabled = false;
-      payBtn.textContent = "Pagar agora";
-    }
-  });
+  function showPixResult(qrCode, qrCodeBase64) {
+    $("paymentSection").style.display = "none";
+    const box = $("pixResult");
+    box.style.display = "block";
+    box.innerHTML =
+      '<div class="section-title" style="font-size:15px;">Pague com Pix para concluir</div>' +
+      '<img src="data:image/png;base64,' + qrCodeBase64 + '" alt="QR Code Pix" style="width:220px; display:block; margin:0 auto 12px;" />' +
+      '<p style="font-size:13px; color:var(--ink-soft); margin-bottom:8px;">Ou copie o código Pix copia-e-cola:</p>' +
+      '<textarea readonly style="width:100%; height:70px; font-size:11px; margin-bottom:10px;">' + (qrCode || "") + '</textarea>' +
+      '<p style="font-size:13px; color:var(--ink-soft);">Assim que o pagamento for confirmado, o pedido aparece em "Pedidos".</p>' +
+      '<button class="primary-btn" id="pixDoneBtn" style="margin-top:12px;">Já paguei / Ver meus pedidos</button>';
+    $("pixDoneBtn").addEventListener("click", finishCheckout);
+  }
 
   async function finishCheckout() {
     cart = [];
