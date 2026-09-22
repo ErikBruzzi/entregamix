@@ -784,7 +784,7 @@
         order.paymentStatus = "pago";
         const r = demoRestaurants.find((r) => r.id === orderData.restaurantId);
         if (r) {
-          const commissionPercent = 10;
+          const commissionPercent = 11; // 10% comissão + 1% taxa de pagamento online
           const commission = (orderData.foodSubtotal || 0) * (commissionPercent / 100);
           r.balance = (r.balance || 0) + Math.max(0, (orderData.foodSubtotal || 0) - commission);
         }
