@@ -421,6 +421,10 @@
           },
         },
         callbacks: {
+          onReady: () => {
+            // O Brick terminou de montar o formulário — nada a fazer aqui,
+            // mas o Mercado Pago exige que esse callback exista.
+          },
           onError: (error) => {
             console.error(error);
             $("paymentError").textContent = "Não foi possível carregar o formulário de pagamento.";
