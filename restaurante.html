@@ -39,8 +39,8 @@
 
   .field { margin-bottom:14px; }
   .field label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:var(--ink-soft); }
-  .field input, .field textarea { width:100%; padding:13px 14px; border:1px solid var(--line); border-radius:10px; font-size:15px; outline:none; }
-  .field input:focus, .field textarea:focus { border-color:var(--green); }
+  .field input, .field textarea, .field select { width:100%; padding:13px 14px; border:1px solid var(--line); border-radius:10px; font-size:15px; outline:none; background:#fff; }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color:var(--green); }
   .field-row { display:flex; gap:10px; }
   .field-row .field { flex:1; }
 
@@ -64,7 +64,7 @@
   .balance-card { background:var(--ink); color:#fff; border-radius:16px; padding:22px; margin-bottom:18px; }
   .balance-label { font-size:13px; color:#cfcfcf; }
   .balance-value { font-size:32px; font-weight:800; margin-top:4px; font-family:'Sora',sans-serif; }
-  .stripe-status { font-size:13px; color:var(--ink-soft); margin-bottom:12px; }
+  .pix-status { font-size:13px; color:var(--ink-soft); margin-bottom:12px; }
   .menu-item-card .actions { display:flex; gap:8px; margin-top:10px; }
   .badge-unavailable { font-size:11px; background:#FFE3D6; color:var(--red-dark); padding:2px 8px; border-radius:20px; margin-left:8px; }
 
@@ -185,7 +185,7 @@
         <div class="balance-label">Saldo disponível</div>
         <div class="balance-value" id="balanceValue">R$ 0,00</div>
       </div>
-      <div id="stripeConnectBox"></div>
+      <div id="pixBox"></div>
       <p class="error-msg" id="payoutMsg" style="display:none;"></p>
     </div>
   </div>

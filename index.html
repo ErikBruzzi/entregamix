@@ -278,8 +278,8 @@
       <div class="section-title" style="font-size:15px;">Pagamento</div>
       <div id="paymentElement" style="margin-bottom:14px;"></div>
       <div id="paymentError" style="color:var(--red-dark); font-size:13px; margin-bottom:10px; display:none;"></div>
-      <button class="primary-btn green" id="payBtn">Pagar agora</button>
     </div>
+    <div id="pixResult" style="display:none; margin-top:18px;"></div>
   </section>
 
   <!-- TELA: PEDIDOS -->
@@ -322,7 +322,7 @@
   <button class="nav-btn" data-go="account"><span class="nav-icon">👤</span>Conta</button>
 </nav>
 
-<script src="https://js.stripe.com/v3/"></script>
+<script src="https://sdk.mercadopago.com/js/v2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="db-adapter.js"></script>

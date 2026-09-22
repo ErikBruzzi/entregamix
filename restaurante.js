@@ -349,43 +349,72 @@
     await window.DB.sendMessage(chatOrderId, "restaurante", content, "restaurante");
   });
 
-  /* ---------------- SALDO E PAGAMENTOS ---------------- */
+  /* ---------------- SALDO E PAGAMENTOS (PIX / MERCADO PAGO) ---------------- */
   async function loadBalance() {
     // Recarrega os dados do restaurante para pegar o saldo mais recente.
     myRestaurant = await window.DB.getMyRestaurant(currentUser.id);
     $("balanceValue").textContent = "R$ " + Number(myRestaurant.balance || 0).toFixed(2).replace(".", ",");
-    renderStripeConnectBox();
+    renderPixBox();
   }
 
-  function renderStripeConnectBox() {
-    const box = $("stripeConnectBox");
-    if (!myRestaurant.stripeAccountId) {
-      box.innerHTML = `
-        <p class="stripe-status">Você ainda não conectou uma conta Stripe. Conecte para poder sacar seu saldo.</p>
-        <button class="primary-btn" id="connectStripeBtn">Conectar conta Stripe</button>
-      `;
-      $("connectStripeBtn").addEventListener("click", async () => {
-        const btn = $("connectStripeBtn");
-        btn.disabled = true;
-        btn.textContent = "Abrindo...";
-        try {
-          const { url } = await window.DB.connectStripeAccount("restaurante", myRestaurant.id);
-          if (url) window.location.href = url;
-          else {
-            alert("Conta conectada (modo demonstração).");
-            loadBalance();
-          }
-        } catch (err) {
-          alert("Não foi possível conectar: " + ((err && err.message) || err));
-          btn.disabled = false;
-          btn.textContent = "Conectar conta Stripe";
-        }
-      });
-    } else {
-      box.innerHTML = `
-        <p class="stripe-status">Conta Stripe conectada.</p>
-        <button class="primary-btn green" id="payoutBtn">Sacar saldo</button>
-      `;
+  const pixKeyTypeLabel = {
+    CPF: "CPF",
+    CNPJ: "CNPJ",
+    EMAIL: "E-mail",
+    PHONE: "Telefone",
+    EVP: "Chave aleatória",
+  };
+
+  function renderPixBox() {
+    const box = $("pixBox");
+    const hasPix = myRestaurant.pixKey && myRestaurant.pixKeyType && myRestaurant.pixOwnerDocument;
+
+    box.innerHTML = `
+      <p class="pix-status">${hasPix ? "Chave PIX cadastrada. Você pode editá-la a qualquer momento." : "Cadastre sua chave PIX para poder sacar seu saldo."}</p>
+      <div class="field">
+        <label>Tipo de chave PIX</label>
+        <select id="pixKeyType">
+          <option value="CPF">CPF</option>
+          <option value="CNPJ">CNPJ</option>
+          <option value="EMAIL">E-mail</option>
+          <option value="PHONE">Telefone</option>
+          <option value="EVP">Chave aleatória</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Chave PIX</label>
+        <input type="text" id="pixKey" placeholder="Sua chave PIX" value="${myRestaurant.pixKey || ""}" />
+      </div>
+      <div class="field">
+        <label>CPF ou CNPJ do titular da chave</label>
+        <input type="text" id="pixOwnerDocument" placeholder="Só números" value="${myRestaurant.pixOwnerDocument || ""}" />
+      </div>
+      <button class="primary-btn" id="savePixBtn">Salvar chave PIX</button>
+      ${hasPix ? '<button class="primary-btn green" id="payoutBtn" style="margin-top:10px;">Sacar saldo</button>' : ""}
+    `;
+    if (myRestaurant.pixKeyType) $("pixKeyType").value = myRestaurant.pixKeyType;
+
+    $("savePixBtn").addEventListener("click", async () => {
+      const btn = $("savePixBtn");
+      const pixKey = $("pixKey").value.trim();
+      const pixKeyType = $("pixKeyType").value;
+      const pixOwnerDocument = $("pixOwnerDocument").value.trim();
+      if (!pixKey || !pixOwnerDocument) return alert("Preencha a chave PIX e o CPF/CNPJ do titular.");
+      btn.disabled = true;
+      btn.textContent = "Salvando...";
+      try {
+        const { restaurant } = await window.DB.updateMyRestaurant(myRestaurant.id, { pixKey, pixKeyType, pixOwnerDocument });
+        myRestaurant = restaurant;
+        renderPixBox();
+      } catch (err) {
+        alert("Não foi possível salvar: " + ((err && err.message) || err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Salvar chave PIX";
+      }
+    });
+
+    if (hasPix) {
       $("payoutBtn").addEventListener("click", async () => {
         const btn = $("payoutBtn");
         const msg = $("payoutMsg");

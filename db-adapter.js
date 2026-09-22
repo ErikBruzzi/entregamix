@@ -24,18 +24,19 @@
     - calculateDeliveryFee(restaurantId, address)      -> { distanceKm, durationMin, fee }  (usa a Edge Function + Google Maps)
     - getMenu(restaurantId)                            -> [{ id, name, description, price, imageUrl }]
     - createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) -> { order }
-      (usado só no modo demo agora — no modo real, o pedido é criado dentro da createPaymentIntent)
-    - createPaymentIntent({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total })
-      -> { clientSecret, orderId }
-      Cria o pedido (pendente de pagamento) e a cobrança no Stripe. Use o
-      clientSecret com o Stripe.js para coletar o pagamento no navegador.
-      No modo demo, clientSecret vem null — nesse caso pule a etapa de
-      pagamento e trate o pedido como já confirmado.
+      (usado só no modo demo agora — no modo real, o pedido é criado dentro da createMpPayment)
+    - createMpPayment({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total, formData })
+      -> { orderId, status, qrCode, qrCodeBase64 }
+      Cria o pedido (pendente de pagamento) e processa a cobrança no
+      Mercado Pago. formData vem do Payment Brick (cartão ou Pix) coletado
+      no navegador. Se status vier "pending" com qrCode preenchido, é um
+      pagamento Pix — mostre o QR code e espere a confirmação (webhook).
+      No modo demo, status sempre vem "approved" na hora.
     - getOrders(userId)                                -> [{ id, restaurantName, status, total, foodSubtotal, deliveryFee, createdAt, items, courierId }]
 
     Restaurante (dono):
-    - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryBaseFee, deliveryPricePerKm, active }
-    - updateMyRestaurant(restaurantId, data)           -> { restaurant }  (data pode incluir deliveryBaseFee, deliveryPricePerKm)
+    - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryBaseFee, deliveryPricePerKm, active, balance, pixKey, pixKeyType, pixOwnerDocument }
+    - updateMyRestaurant(restaurantId, data)           -> { restaurant }  (data pode incluir deliveryBaseFee, deliveryPricePerKm, pixKey, pixKeyType, pixOwnerDocument)
     - getMyMenu(restaurantId)                          -> [{ id, name, description, price, available, imageUrl }]
     - createMenuItem(restaurantId, data)               -> { item }  (data pode incluir imageUrl)
     - updateMenuItem(itemId, data)                     -> { item }
@@ -49,7 +50,16 @@
     - getMyDeliveries(courierId)                       -> [{ id, restaurantName, restaurantAddress, address, total, status, pickupCode, createdAt }]
     - claimDelivery(orderId, courierId)                -> { order }  (lança erro se outro entregador já pegou)
     - confirmPickup(orderId)                           -> void  (status -> a_caminho)
-    - confirmDelivery(orderId)                         -> void  (status -> entregue)
+    - confirmDelivery(orderId)                         -> void  (status -> entregue; credita o saldo dele com o valor da entrega)
+
+    Pagamento e saldo (usado por restaurante e entregador):
+    - getProfile(userId) já traz balance, pixKey, pixKeyType, pixOwnerDocument para o entregador
+    - updateProfile(userId, { pixKey, pixKeyType, pixOwnerDocument }) -> cadastra/edita a chave PIX do entregador
+    - requestPayout(type, id)                          -> { amount, transactionId }
+      type é 'restaurante' (id = restaurantId) ou 'entregador' (id = userId).
+      Transfere o saldo disponível via PIX (Mercado Pago Payouts) para a
+      chave cadastrada, e zera o saldo. Lança erro se não houver chave PIX
+      cadastrada ou saldo disponível.
 
     Chat (usado pelos três papéis, um pedido pode ter até 2 conversas):
     - getMessages(orderId, channel)                    -> [{ id, senderId, senderRole, content, createdAt }]
@@ -87,6 +97,17 @@
   --------------------------------------------------------------------- */
   function buildSupabaseAdapter() {
     const client = window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
+
+    // Converte os nomes de coluna do PIX (snake_case) para o formato usado
+    // no resto do app (camelCase), mantendo os demais campos como vieram.
+    function mapPixFields(row) {
+      return {
+        ...row,
+        pixKey: row.pix_key,
+        pixKeyType: row.pix_key_type,
+        pixOwnerDocument: row.pix_owner_document,
+      };
+    }
 
     return {
       /* ---------- CONTA / SESSÃO ---------- */
@@ -126,11 +147,11 @@
       async getProfile(userId) {
         const { data, error } = await client
           .from("profiles")
-          .select("name, email, phone, address, role, city, balance, stripe_account_id")
+          .select("name, email, phone, address, role, city, balance, pix_key, pix_key_type, pix_owner_document")
           .eq("id", userId)
           .maybeSingle();
         if (error) throw error;
-        if (data) return { ...data, stripeAccountId: data.stripe_account_id };
+        if (data) return mapPixFields(data);
 
         // Login sem perfil correspondente (ex.: criado antes do gatilho automático).
         const { data: authData } = await client.auth.getUser();
@@ -141,18 +162,31 @@
           .select()
           .single();
         if (createError) throw createError;
-        return { ...created, stripeAccountId: created.stripe_account_id };
+        return mapPixFields(created);
       },
 
       async updateProfile(userId, updates) {
+        const payload = { ...updates };
+        if (payload.pixKey !== undefined) {
+          payload.pix_key = payload.pixKey;
+          delete payload.pixKey;
+        }
+        if (payload.pixKeyType !== undefined) {
+          payload.pix_key_type = payload.pixKeyType;
+          delete payload.pixKeyType;
+        }
+        if (payload.pixOwnerDocument !== undefined) {
+          payload.pix_owner_document = payload.pixOwnerDocument;
+          delete payload.pixOwnerDocument;
+        }
         const { data, error } = await client
           .from("profiles")
-          .update(updates)
+          .update(payload)
           .eq("id", userId)
           .select()
           .single();
         if (error) throw error;
-        return { profile: data };
+        return { profile: mapPixFields(data) };
       },
 
       /* ---------- CLIENTE ---------- */
@@ -236,10 +270,10 @@
         return { order: data };
       },
 
-      async createPaymentIntent({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
+      async createMpPayment({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total, formData }) {
         const session = await this.getSession();
         const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
-        const res = await fetch(config.SUPABASE_URL + "/functions/v1/create-payment-intent", {
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/create-mp-payment", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -255,34 +289,18 @@
             deliveryFee,
             deliveryDistanceKm,
             total,
+            formData,
           }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Não foi possível iniciar o pagamento.");
-        return data; // { clientSecret, orderId }
-      },
-
-      async connectStripeAccount(type, id) {
-        const session = await this.getSession();
-        const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
-        const res = await fetch(config.SUPABASE_URL + "/functions/v1/connect-stripe-account", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: config.SUPABASE_ANON_KEY,
-            Authorization: "Bearer " + token,
-          },
-          body: JSON.stringify({ type, id }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Não foi possível conectar sua conta Stripe.");
-        return data; // { url }
+        if (!res.ok) throw new Error(data.error || "Não foi possível processar o pagamento.");
+        return data; // { orderId, status, qrCode, qrCodeBase64 }
       },
 
       async requestPayout(type, id) {
         const session = await this.getSession();
         const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
-        const res = await fetch(config.SUPABASE_URL + "/functions/v1/request-payout", {
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/request-mp-payout", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -293,7 +311,7 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Não foi possível processar o saque.");
-        return data; // { amount, transferId }
+        return data; // { amount, transactionId }
       },
 
       async getOrders(userId) {
@@ -322,7 +340,7 @@
       async getMyRestaurant(ownerId) {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active, balance, stripe_account_id")
+          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active, balance, pix_key, pix_key_type, pix_owner_document")
           .eq("owner_id", ownerId)
           .maybeSingle();
         if (error) throw error;
@@ -338,7 +356,9 @@
           deliveryPricePerKm: data.delivery_price_per_km,
           active: data.active,
           balance: data.balance,
-          stripeAccountId: data.stripe_account_id,
+          pixKey: data.pix_key,
+          pixKeyType: data.pix_key_type,
+          pixOwnerDocument: data.pix_owner_document,
         };
       },
 
@@ -363,6 +383,9 @@
         if (updates.deliveryBaseFee !== undefined) payload.delivery_base_fee = updates.deliveryBaseFee;
         if (updates.deliveryPricePerKm !== undefined) payload.delivery_price_per_km = updates.deliveryPricePerKm;
         if (updates.active !== undefined) payload.active = updates.active;
+        if (updates.pixKey !== undefined) payload.pix_key = updates.pixKey;
+        if (updates.pixKeyType !== undefined) payload.pix_key_type = updates.pixKeyType;
+        if (updates.pixOwnerDocument !== undefined) payload.pix_owner_document = updates.pixOwnerDocument;
         const { data, error } = await client
           .from("restaurants")
           .update(payload)
@@ -727,10 +750,10 @@
         orders.unshift(order);
         return { order };
       },
-      async createPaymentIntent(orderData) {
-        // Sem Stripe de verdade no modo demo: cria o pedido direto, como se
-        // o pagamento já tivesse sido aprovado na hora, e credita o saldo do
-        // restaurante do mesmo jeito que o webhook faria de verdade.
+      async createMpPayment(orderData) {
+        // Sem Mercado Pago de verdade no modo demo: cria o pedido direto,
+        // como se o pagamento já tivesse sido aprovado na hora, e credita o
+        // saldo do restaurante do mesmo jeito que o webhook faria de verdade.
         const { order } = await this.createOrder(orderData);
         order.status = "recebido";
         order.paymentStatus = "pago";
@@ -740,30 +763,23 @@
           const commission = (orderData.foodSubtotal || 0) * (commissionPercent / 100);
           r.balance = (r.balance || 0) + Math.max(0, (orderData.foodSubtotal || 0) - commission);
         }
-        return { clientSecret: null, orderId: order.id };
-      },
-      async connectStripeAccount(type, id) {
-        if (type === "restaurante") {
-          const r = demoRestaurants.find((r) => r.id === id);
-          if (r) r.stripeAccountId = "acct_demo";
-        } else if (profile) {
-          profile.stripeAccountId = "acct_demo";
-        }
-        return { url: null }; // modo demo: nada para abrir, já "conecta" na hora
+        return { orderId: order.id, status: "approved" };
       },
       async requestPayout(type, id) {
         if (type === "restaurante") {
           const r = demoRestaurants.find((r) => r.id === id);
           if (!r) throw new Error("Restaurante não encontrado.");
+          if (!r.pixKey) throw new Error("Cadastre sua chave PIX antes de sacar.");
           const amount = Number(r.balance || 0);
           if (amount <= 0) throw new Error("Você não tem saldo disponível para sacar.");
           r.balance = 0;
-          return { amount, transferId: "demo" };
+          return { amount, transactionId: "demo" };
         } else {
+          if (!profile || !profile.pixKey) throw new Error("Cadastre sua chave PIX antes de sacar.");
           const amount = Number((profile && profile.balance) || 0);
           if (amount <= 0) throw new Error("Você não tem saldo disponível para sacar.");
           if (profile) profile.balance = 0;
-          return { amount, transferId: "demo" };
+          return { amount, transactionId: "demo" };
         }
       },
       async getOrders(userId) {

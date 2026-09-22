@@ -273,43 +273,64 @@
     await window.DB.sendMessage(chatOrderId, "entregador", content, "entregador");
   });
 
-  /* ---------------- SALDO E PAGAMENTOS ---------------- */
+  /* ---------------- SALDO E PAGAMENTOS (PIX / MERCADO PAGO) ---------------- */
   async function loadBalance() {
     // Recarrega o perfil para pegar o saldo mais recente.
     profile = await window.DB.getProfile(currentUser.id);
     $("balanceValue").textContent = "R$ " + Number(profile.balance || 0).toFixed(2).replace(".", ",");
-    renderStripeConnectBox();
+    renderPixBox();
   }
 
-  function renderStripeConnectBox() {
-    const box = $("stripeConnectBox");
-    if (!profile.stripeAccountId) {
-      box.innerHTML = `
-        <p class="stripe-status">Você ainda não conectou uma conta Stripe. Conecte para poder sacar seu saldo.</p>
-        <button class="primary-btn" id="connectStripeBtn">Conectar conta Stripe</button>
-      `;
-      $("connectStripeBtn").addEventListener("click", async () => {
-        const btn = $("connectStripeBtn");
-        btn.disabled = true;
-        btn.textContent = "Abrindo...";
-        try {
-          const { url } = await window.DB.connectStripeAccount("entregador", currentUser.id);
-          if (url) window.location.href = url;
-          else {
-            alert("Conta conectada (modo demonstração).");
-            loadBalance();
-          }
-        } catch (err) {
-          alert("Não foi possível conectar: " + ((err && err.message) || err));
-          btn.disabled = false;
-          btn.textContent = "Conectar conta Stripe";
-        }
-      });
-    } else {
-      box.innerHTML = `
-        <p class="stripe-status">Conta Stripe conectada.</p>
-        <button class="primary-btn green" id="payoutBtn">Sacar saldo</button>
-      `;
+  function renderPixBox() {
+    const box = $("pixBox");
+    const hasPix = profile.pixKey && profile.pixKeyType && profile.pixOwnerDocument;
+
+    box.innerHTML = `
+      <p class="pix-status">${hasPix ? "Chave PIX cadastrada. Você pode editá-la a qualquer momento." : "Cadastre sua chave PIX para poder sacar seu saldo."}</p>
+      <div class="field">
+        <label>Tipo de chave PIX</label>
+        <select id="pixKeyType">
+          <option value="CPF">CPF</option>
+          <option value="CNPJ">CNPJ</option>
+          <option value="EMAIL">E-mail</option>
+          <option value="PHONE">Telefone</option>
+          <option value="EVP">Chave aleatória</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Chave PIX</label>
+        <input type="text" id="pixKey" placeholder="Sua chave PIX" value="${profile.pixKey || ""}" />
+      </div>
+      <div class="field">
+        <label>CPF do titular da chave</label>
+        <input type="text" id="pixOwnerDocument" placeholder="Só números" value="${profile.pixOwnerDocument || ""}" />
+      </div>
+      <button class="primary-btn" id="savePixBtn">Salvar chave PIX</button>
+      ${hasPix ? '<button class="primary-btn green" id="payoutBtn" style="margin-top:10px;">Sacar saldo</button>' : ""}
+    `;
+    if (profile.pixKeyType) $("pixKeyType").value = profile.pixKeyType;
+
+    $("savePixBtn").addEventListener("click", async () => {
+      const btn = $("savePixBtn");
+      const pixKey = $("pixKey").value.trim();
+      const pixKeyType = $("pixKeyType").value;
+      const pixOwnerDocument = $("pixOwnerDocument").value.trim();
+      if (!pixKey || !pixOwnerDocument) return alert("Preencha a chave PIX e o CPF do titular.");
+      btn.disabled = true;
+      btn.textContent = "Salvando...";
+      try {
+        const { profile: updated } = await window.DB.updateProfile(currentUser.id, { pixKey, pixKeyType, pixOwnerDocument });
+        profile = updated;
+        renderPixBox();
+      } catch (err) {
+        alert("Não foi possível salvar: " + ((err && err.message) || err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Salvar chave PIX";
+      }
+    });
+
+    if (hasPix) {
       $("payoutBtn").addEventListener("click", async () => {
         const btn = $("payoutBtn");
         const msg = $("payoutMsg");

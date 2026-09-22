@@ -373,29 +373,36 @@ create policy "qualquer um lê as configurações da plataforma" on platform_set
 -- Se no futuro você quiser um painel para isso, me avise.
 
 -- ------------------------------------------------------------
--- PAGAMENTOS (STRIPE) — saldo, conta conectada e histórico de saques
+-- PAGAMENTOS (MERCADO PAGO) — saldo, chave PIX de saque e histórico de saques
 -- ------------------------------------------------------------
 
--- Saldo disponível e conta Stripe conectada de cada restaurante.
+-- Saldo disponível e chave PIX de cada restaurante (é para essa chave que o
+-- saque via Mercado Pago Payouts vai enviar o dinheiro).
 alter table restaurants add column if not exists balance numeric(10,2) not null default 0;
-alter table restaurants add column if not exists stripe_account_id text;
+alter table restaurants add column if not exists pix_key text;
+alter table restaurants add column if not exists pix_key_type text; -- CPF | CNPJ | EMAIL | PHONE | EVP (chave aleatória)
+alter table restaurants add column if not exists pix_owner_document text; -- CPF ou CNPJ do dono da chave (exigido pela API de saque)
 
 -- Mesma coisa para entregadores (fica na tabela profiles, que já é a conta de cada usuário).
 alter table profiles add column if not exists balance numeric(10,2) not null default 0;
-alter table profiles add column if not exists stripe_account_id text;
+alter table profiles add column if not exists pix_key text;
+alter table profiles add column if not exists pix_key_type text;
+alter table profiles add column if not exists pix_owner_document text;
 
--- IMPORTANTE: mesmo o dono podendo editar seu próprio restaurante/perfil, estas
--- duas colunas NUNCA podem ser alteradas por uma chamada normal do site — só
--- pelas Edge Functions (que usam a service role e ignoram essa trava). Sem
--- isso, qualquer um poderia tentar definir o próprio saldo direto pela API.
-revoke update (balance, stripe_account_id) on restaurants from authenticated, anon;
-revoke update (balance, stripe_account_id) on profiles from authenticated, anon;
+-- IMPORTANTE: mesmo o dono podendo editar seu próprio restaurante/perfil, a
+-- coluna de saldo NUNCA pode ser alterada por uma chamada normal do site —
+-- só pelas Edge Functions (que usam a service role e ignoram essa trava).
+-- Sem isso, qualquer um poderia tentar definir o próprio saldo direto pela
+-- API. A chave PIX pode continuar editável normalmente (não é dinheiro em
+-- si, só o destino de um saque futuro que o próprio dono está definindo).
+revoke update (balance) on restaurants from authenticated, anon;
+revoke update (balance) on profiles from authenticated, anon;
 
 -- Status do pagamento do pedido — o pedido só existe "de verdade" (aparece
--- pro restaurante) depois que o Stripe confirmar o pagamento via webhook.
+-- pro restaurante) depois que o Mercado Pago confirmar o pagamento via webhook.
 alter table orders add column if not exists payment_status text not null default 'pendente';
 -- payment_status possíveis: pendente | pago | falhou
-alter table orders add column if not exists stripe_payment_intent_id text;
+alter table orders add column if not exists mp_payment_id text;
 
 -- Histórico de saques, para você conseguir auditar cada transferência feita.
 create table if not exists payouts (
@@ -403,7 +410,7 @@ create table if not exists payouts (
   recipient_type text not null check (recipient_type in ('restaurante', 'entregador')),
   recipient_id uuid not null,
   amount numeric(10,2) not null,
-  stripe_transfer_id text,
+  mp_transaction_id text,
   status text not null default 'concluido', -- concluido | falhou
   created_at timestamp with time zone default now()
 );
@@ -425,9 +432,9 @@ as $$
   update restaurants set balance = balance + p_amount where id = p_restaurant_id;
 $$;
 -- Esta função não confere quem está chamando, então só pode ser executada
--- pela Edge Function do webhook do Stripe (que usa a service role). Se
--- qualquer usuário autenticado pudesse chamá-la, daria pra inflar o saldo
--- de qualquer restaurante à vontade.
+-- pela Edge Function do webhook do Mercado Pago (mp-webhook, que usa a
+-- service role). Se qualquer usuário autenticado pudesse chamá-la, daria
+-- pra inflar o saldo de qualquer restaurante à vontade.
 revoke execute on function public.increment_restaurant_balance(uuid, numeric) from public, authenticated, anon;
 
 -- Marca a entrega como concluída E credita o saldo do entregador em uma
