@@ -354,7 +354,8 @@
     // Recarrega os dados do restaurante para pegar o saldo mais recente.
     myRestaurant = await window.DB.getMyRestaurant(currentUser.id);
     $("balanceValue").textContent = "R$ " + Number(myRestaurant.balance || 0).toFixed(2).replace(".", ",");
-    renderPixBox();
+    const pendingPayout = await window.DB.getPendingPayout("restaurante", myRestaurant.id);
+    renderPixBox(pendingPayout);
   }
 
   const pixKeyTypeLabel = {
@@ -365,9 +366,21 @@
     EVP: "Chave aleatória",
   };
 
-  function renderPixBox() {
+  function renderPixBox(pendingPayout) {
     const box = $("pixBox");
     const hasPix = myRestaurant.pixKey && myRestaurant.pixKeyType && myRestaurant.pixOwnerDocument;
+
+    let payoutSection = "";
+    if (pendingPayout) {
+      const dataFormatada = new Date(pendingPayout.created_at).toLocaleDateString("pt-BR");
+      payoutSection = `
+        <p class="pix-status" style="color:#2e7d32; font-weight:600; margin-top:10px;">
+          Saque de R$ ${Number(pendingPayout.amount).toFixed(2).replace(".", ",")} solicitado em ${dataFormatada}.
+          Estamos processando o Pix manualmente — você será avisado assim que cair na sua chave.
+        </p>`;
+    } else if (hasPix) {
+      payoutSection = '<button class="primary-btn green" id="payoutBtn" style="margin-top:10px;">Sacar saldo</button>';
+    }
 
     box.innerHTML = `
       <p class="pix-status">${hasPix ? "Chave PIX cadastrada. Você pode editá-la a qualquer momento." : "Cadastre sua chave PIX para poder sacar seu saldo."}</p>
@@ -390,7 +403,7 @@
         <input type="text" id="pixOwnerDocument" placeholder="Só números" value="${myRestaurant.pixOwnerDocument || ""}" />
       </div>
       <button class="primary-btn" id="savePixBtn">Salvar chave PIX</button>
-      ${hasPix ? '<button class="primary-btn green" id="payoutBtn" style="margin-top:10px;">Sacar saldo</button>' : ""}
+      ${payoutSection}
     `;
     if (myRestaurant.pixKeyType) $("pixKeyType").value = myRestaurant.pixKeyType;
 
@@ -405,7 +418,7 @@
       try {
         const { restaurant } = await window.DB.updateMyRestaurant(myRestaurant.id, { pixKey, pixKeyType, pixOwnerDocument });
         myRestaurant = restaurant;
-        renderPixBox();
+        await loadBalance();
       } catch (err) {
         alert("Não foi possível salvar: " + ((err && err.message) || err));
       } finally {
@@ -414,7 +427,7 @@
       }
     });
 
-    if (hasPix) {
+    if (hasPix && !pendingPayout) {
       $("payoutBtn").addEventListener("click", async () => {
         const btn = $("payoutBtn");
         const msg = $("payoutMsg");
@@ -423,7 +436,7 @@
         btn.textContent = "Processando...";
         try {
           const { amount } = await window.DB.requestPayout("restaurante", myRestaurant.id);
-          alert("Saque de R$ " + Number(amount).toFixed(2).replace(".", ",") + " enviado com sucesso!");
+          alert("Solicitação de saque de R$ " + Number(amount).toFixed(2).replace(".", ",") + " enviada! Vamos transferir via Pix manualmente e você será avisado assim que for concluído.");
           await loadBalance();
         } catch (err) {
           msg.textContent = (err && err.message) || String(err);

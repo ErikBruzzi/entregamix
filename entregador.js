@@ -278,12 +278,25 @@
     // Recarrega o perfil para pegar o saldo mais recente.
     profile = await window.DB.getProfile(currentUser.id);
     $("balanceValue").textContent = "R$ " + Number(profile.balance || 0).toFixed(2).replace(".", ",");
-    renderPixBox();
+    const pendingPayout = await window.DB.getPendingPayout("entregador", currentUser.id);
+    renderPixBox(pendingPayout);
   }
 
-  function renderPixBox() {
+  function renderPixBox(pendingPayout) {
     const box = $("pixBox");
     const hasPix = profile.pixKey && profile.pixKeyType && profile.pixOwnerDocument;
+
+    let payoutSection = "";
+    if (pendingPayout) {
+      const dataFormatada = new Date(pendingPayout.created_at).toLocaleDateString("pt-BR");
+      payoutSection = `
+        <p class="pix-status" style="color:#2e7d32; font-weight:600; margin-top:10px;">
+          Saque de R$ ${Number(pendingPayout.amount).toFixed(2).replace(".", ",")} solicitado em ${dataFormatada}.
+          Estamos processando o Pix manualmente — você será avisado assim que cair na sua chave.
+        </p>`;
+    } else if (hasPix) {
+      payoutSection = '<button class="primary-btn green" id="payoutBtn" style="margin-top:10px;">Sacar saldo</button>';
+    }
 
     box.innerHTML = `
       <p class="pix-status">${hasPix ? "Chave PIX cadastrada. Você pode editá-la a qualquer momento." : "Cadastre sua chave PIX para poder sacar seu saldo."}</p>
@@ -306,7 +319,7 @@
         <input type="text" id="pixOwnerDocument" placeholder="Só números" value="${profile.pixOwnerDocument || ""}" />
       </div>
       <button class="primary-btn" id="savePixBtn">Salvar chave PIX</button>
-      ${hasPix ? '<button class="primary-btn green" id="payoutBtn" style="margin-top:10px;">Sacar saldo</button>' : ""}
+      ${payoutSection}
     `;
     if (profile.pixKeyType) $("pixKeyType").value = profile.pixKeyType;
 
@@ -321,7 +334,7 @@
       try {
         const { profile: updated } = await window.DB.updateProfile(currentUser.id, { pixKey, pixKeyType, pixOwnerDocument });
         profile = updated;
-        renderPixBox();
+        await loadBalance();
       } catch (err) {
         alert("Não foi possível salvar: " + ((err && err.message) || err));
       } finally {
@@ -330,7 +343,7 @@
       }
     });
 
-    if (hasPix) {
+    if (hasPix && !pendingPayout) {
       $("payoutBtn").addEventListener("click", async () => {
         const btn = $("payoutBtn");
         const msg = $("payoutMsg");
@@ -339,7 +352,7 @@
         btn.textContent = "Processando...";
         try {
           const { amount } = await window.DB.requestPayout("entregador", currentUser.id);
-          alert("Saque de R$ " + Number(amount).toFixed(2).replace(".", ",") + " enviado com sucesso!");
+          alert("Solicitação de saque de R$ " + Number(amount).toFixed(2).replace(".", ",") + " enviada! Vamos transferir via Pix manualmente e você será avisado assim que for concluído.");
           await loadBalance();
         } catch (err) {
           msg.textContent = (err && err.message) || String(err);

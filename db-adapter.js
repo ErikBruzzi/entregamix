@@ -55,11 +55,18 @@
     Pagamento e saldo (usado por restaurante e entregador):
     - getProfile(userId) já traz balance, pixKey, pixKeyType, pixOwnerDocument para o entregador
     - updateProfile(userId, { pixKey, pixKeyType, pixOwnerDocument }) -> cadastra/edita a chave PIX do entregador
-    - requestPayout(type, id)                          -> { amount, transactionId }
+    - requestPayout(type, id)                          -> { amount, requested: true }
       type é 'restaurante' (id = restaurantId) ou 'entregador' (id = userId).
-      Transfere o saldo disponível via PIX (Mercado Pago Payouts) para a
-      chave cadastrada, e zera o saldo. Lança erro se não houver chave PIX
-      cadastrada ou saldo disponível.
+      A API de transferência automática (Mercado Pago Payouts) exige
+      liberação especial que a conta ainda não tem, então isso só registra
+      uma solicitação de saque (tabela payouts, status "solicitado") — o
+      saldo NÃO é zerado aqui. O Pix é feito manualmente, fora do app, e só
+      quando isso acontecer o saldo deve ser abatido (hoje isso é feito à
+      mão no Supabase; dá pra automatizar com uma tela de admin depois).
+      Lança erro se não houver chave PIX, saldo disponível, ou se já
+      existir uma solicitação pendente.
+    - getPendingPayout(type, id)                       -> null | { id, amount, created_at }
+      Verifica se já existe uma solicitação de saque aguardando pagamento.
 
     Chat (usado pelos três papéis, um pedido pode ter até 2 conversas):
     - getMessages(orderId, channel)                    -> [{ id, senderId, senderRole, content, createdAt }]
@@ -311,7 +318,24 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Não foi possível processar o saque.");
-        return data; // { amount, transactionId }
+        return data; // { amount, requested: true }
+      },
+
+      // Verifica se já existe uma solicitação de saque aguardando pagamento
+      // manual, pra não deixar a pessoa pedir de novo e pra mostrar o status
+      // certo na tela.
+      async getPendingPayout(type, id) {
+        const { data, error } = await client
+          .from("payouts")
+          .select("id, amount, created_at")
+          .eq("recipient_type", type)
+          .eq("recipient_id", id)
+          .eq("status", "solicitado")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        return data; // null, ou { id, amount, created_at }
       },
 
       async getOrders(userId) {
@@ -660,6 +684,7 @@
     const authListeners = [];
     const messages = {};
     const messageListeners = {};
+    const demoPendingPayouts = {}; // chave "tipo:id" -> { amount, createdAt }
     let idCounter = 1;
 
     function findOrder(id) {
@@ -766,21 +791,27 @@
         return { orderId: order.id, status: "approved" };
       },
       async requestPayout(type, id) {
+        const key = type + ":" + id;
+        if (demoPendingPayouts[key]) throw new Error("Você já tem uma solicitação de saque pendente. Aguarde o pagamento.");
         if (type === "restaurante") {
           const r = demoRestaurants.find((r) => r.id === id);
           if (!r) throw new Error("Restaurante não encontrado.");
           if (!r.pixKey) throw new Error("Cadastre sua chave PIX antes de sacar.");
           const amount = Number(r.balance || 0);
           if (amount <= 0) throw new Error("Você não tem saldo disponível para sacar.");
-          r.balance = 0;
-          return { amount, transactionId: "demo" };
+          demoPendingPayouts[key] = { amount, createdAt: new Date().toISOString() };
+          return { amount, requested: true };
         } else {
           if (!profile || !profile.pixKey) throw new Error("Cadastre sua chave PIX antes de sacar.");
           const amount = Number((profile && profile.balance) || 0);
           if (amount <= 0) throw new Error("Você não tem saldo disponível para sacar.");
-          if (profile) profile.balance = 0;
-          return { amount, transactionId: "demo" };
+          demoPendingPayouts[key] = { amount, createdAt: new Date().toISOString() };
+          return { amount, requested: true };
         }
+      },
+
+      async getPendingPayout(type, id) {
+        return demoPendingPayouts[type + ":" + id] || null;
       },
       async getOrders(userId) {
         return orders.filter((o) => o.userId === userId);
