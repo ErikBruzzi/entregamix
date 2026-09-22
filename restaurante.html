@@ -61,6 +61,10 @@
   .item-info-row { display:flex; gap:12px; align-items:flex-start; flex:1; }
   input[type="file"] { font-size:13px; padding:8px 0; }
   .photo-btn { font-size:12px; padding:6px 10px; background:var(--surface); border-radius:8px; color:var(--ink); margin-top:6px; }
+  .balance-card { background:var(--ink); color:#fff; border-radius:16px; padding:22px; margin-bottom:18px; }
+  .balance-label { font-size:13px; color:#cfcfcf; }
+  .balance-value { font-size:32px; font-weight:800; margin-top:4px; font-family:'Sora',sans-serif; }
+  .stripe-status { font-size:13px; color:var(--ink-soft); margin-bottom:12px; }
   .menu-item-card .actions { display:flex; gap:8px; margin-top:10px; }
   .badge-unavailable { font-size:11px; background:#FFE3D6; color:var(--red-dark); padding:2px 8px; border-radius:20px; margin-left:8px; }
 
@@ -129,6 +133,7 @@
       <button class="tab-btn active" data-tab="settings">Meu restaurante</button>
       <button class="tab-btn" data-tab="menu">Cardápio</button>
       <button class="tab-btn" data-tab="orders">Pedidos</button>
+      <button class="tab-btn" data-tab="balance">Saldo</button>
     </div>
 
     <div class="panel active" id="panel-settings">
@@ -173,6 +178,15 @@
 
     <div class="panel" id="panel-orders">
       <div id="ordersList"></div>
+    </div>
+
+    <div class="panel" id="panel-balance">
+      <div class="balance-card">
+        <div class="balance-label">Saldo disponível</div>
+        <div class="balance-value" id="balanceValue">R$ 0,00</div>
+      </div>
+      <div id="stripeConnectBox"></div>
+      <p class="error-msg" id="payoutMsg" style="display:none;"></p>
     </div>
   </div>
 </div>

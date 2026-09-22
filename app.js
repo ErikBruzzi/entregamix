@@ -288,6 +288,8 @@
     $("checkoutFee").textContent = "—";
     $("confirmOrderBtn").disabled = true;
     $("confirmOrderBtn").textContent = "Calcule o frete para continuar";
+    $("confirmOrderBtn").style.display = "block";
+    resetPaymentSection();
     updateCheckoutTotals();
   }
 
@@ -340,6 +342,21 @@
   $("checkoutAddress").addEventListener("input", invalidateDeliveryEstimate);
   $("checkoutCity").addEventListener("input", invalidateDeliveryEstimate);
 
+  /* ---------------- PAGAMENTO (STRIPE) ---------------- */
+  const stripe = window.Stripe && window.APP_CONFIG.STRIPE_PUBLISHABLE_KEY
+    ? window.Stripe(window.APP_CONFIG.STRIPE_PUBLISHABLE_KEY)
+    : null;
+  let stripeElements = null;
+  let pendingOrderId = null;
+
+  function resetPaymentSection() {
+    $("paymentSection").style.display = "none";
+    $("paymentElement").innerHTML = "";
+    $("paymentError").style.display = "none";
+    stripeElements = null;
+    pendingOrderId = null;
+  }
+
   $("confirmOrderBtn").addEventListener("click", async () => {
     const address = $("checkoutAddress").value.trim();
     const city = $("checkoutCity").value.trim();
@@ -347,9 +364,9 @@
     const { subtotal, fee, total } = cartTotal();
     const btn = $("confirmOrderBtn");
     btn.disabled = true;
-    btn.textContent = "Enviando pedido...";
+    btn.textContent = "Preparando pagamento...";
     try {
-      await window.DB.createOrder({
+      const { clientSecret, orderId } = await window.DB.createPaymentIntent({
         restaurantId: activeRestaurant.id,
         items: cart,
         address,
@@ -359,20 +376,67 @@
         deliveryDistanceKm: calculatedDelivery.distanceKm,
         total,
       });
-      cart = [];
-      updateCartBadge();
-      $("checkoutAddress").value = "";
-      $("checkoutCity").value = "";
-      calculatedDelivery = null;
-      await loadOrders();
-      showScreen("orders");
+      pendingOrderId = orderId;
+
+      if (!clientSecret) {
+        // Modo demonstração: não há Stripe de verdade, o pedido já foi
+        // criado direto. Pula a etapa de pagamento.
+        await finishCheckout();
+        return;
+      }
+
+      // Monta o formulário de pagamento do Stripe dentro da tela de checkout.
+      stripeElements = stripe.elements({ clientSecret });
+      const paymentElement = stripeElements.create("payment");
+      paymentElement.mount("#paymentElement");
+
+      btn.style.display = "none";
+      $("paymentSection").style.display = "block";
     } catch (err) {
-      alert("Não foi possível enviar o pedido: " + (err.message || err));
+      alert("Não foi possível iniciar o pagamento: " + ((err && err.message) || err));
     } finally {
       btn.disabled = false;
-      btn.textContent = "Confirmar pedido";
+      btn.textContent = "Ir para pagamento";
     }
   });
+
+  $("payBtn").addEventListener("click", async () => {
+    const payBtn = $("payBtn");
+    const errBox = $("paymentError");
+    errBox.style.display = "none";
+    payBtn.disabled = true;
+    payBtn.textContent = "Processando pagamento...";
+    try {
+      const { error } = await stripe.confirmPayment({
+        elements: stripeElements,
+        redirect: "if_required",
+      });
+      if (error) {
+        errBox.textContent = error.message || "Não foi possível confirmar o pagamento.";
+        errBox.style.display = "block";
+        return;
+      }
+      await finishCheckout();
+    } catch (err) {
+      errBox.textContent = (err && err.message) || String(err);
+      errBox.style.display = "block";
+    } finally {
+      payBtn.disabled = false;
+      payBtn.textContent = "Pagar agora";
+    }
+  });
+
+  async function finishCheckout() {
+    cart = [];
+    updateCartBadge();
+    $("checkoutAddress").value = "";
+    $("checkoutCity").value = "";
+    calculatedDelivery = null;
+    resetPaymentSection();
+    $("confirmOrderBtn").style.display = "block";
+    await loadOrders();
+    showScreen("orders");
+  }
 
   /* ---------------- PEDIDOS ---------------- */
   async function loadOrders() {
@@ -381,6 +445,7 @@
   }
 
   const statusLabel = {
+    aguardando_pagamento: "Aguardando pagamento",
     recebido: "Recebido",
     preparando: "Preparando",
     a_caminho: "A caminho",

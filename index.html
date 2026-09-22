@@ -116,6 +116,7 @@
   .order-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
   .order-card .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
   .status-badge { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+  .status-aguardando_pagamento { background: #ECECEC; color: #6B6B6B; }
   .status-recebido { background: #FFF1D6; color: #A66B00; }
   .status-preparando { background: #FFE3D6; color: var(--red-dark); }
   .status-a_caminho { background: #DCE9FF; color: #1B4FA8; }
@@ -272,6 +273,13 @@
     <div class="totals-row"><span>Taxa de entrega</span><span id="checkoutFee">—</span></div>
     <div class="totals-row grand"><span>Total do pedido</span><span id="checkoutTotal">R$ 0,00</span></div>
     <button class="primary-btn green" id="confirmOrderBtn" disabled>Calcule o frete para continuar</button>
+
+    <div id="paymentSection" style="display:none; margin-top:18px;">
+      <div class="section-title" style="font-size:15px;">Pagamento</div>
+      <div id="paymentElement" style="margin-bottom:14px;"></div>
+      <div id="paymentError" style="color:var(--red-dark); font-size:13px; margin-bottom:10px; display:none;"></div>
+      <button class="primary-btn green" id="payBtn">Pagar agora</button>
+    </div>
   </section>
 
   <!-- TELA: PEDIDOS -->
@@ -314,6 +322,7 @@
   <button class="nav-btn" data-go="account"><span class="nav-icon">👤</span>Conta</button>
 </nav>
 
+<script src="https://js.stripe.com/v3/"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="db-adapter.js"></script>

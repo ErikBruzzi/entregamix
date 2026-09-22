@@ -373,6 +373,93 @@ create policy "qualquer um lê as configurações da plataforma" on platform_set
 -- Se no futuro você quiser um painel para isso, me avise.
 
 -- ------------------------------------------------------------
+-- PAGAMENTOS (STRIPE) — saldo, conta conectada e histórico de saques
+-- ------------------------------------------------------------
+
+-- Saldo disponível e conta Stripe conectada de cada restaurante.
+alter table restaurants add column if not exists balance numeric(10,2) not null default 0;
+alter table restaurants add column if not exists stripe_account_id text;
+
+-- Mesma coisa para entregadores (fica na tabela profiles, que já é a conta de cada usuário).
+alter table profiles add column if not exists balance numeric(10,2) not null default 0;
+alter table profiles add column if not exists stripe_account_id text;
+
+-- IMPORTANTE: mesmo o dono podendo editar seu próprio restaurante/perfil, estas
+-- duas colunas NUNCA podem ser alteradas por uma chamada normal do site — só
+-- pelas Edge Functions (que usam a service role e ignoram essa trava). Sem
+-- isso, qualquer um poderia tentar definir o próprio saldo direto pela API.
+revoke update (balance, stripe_account_id) on restaurants from authenticated, anon;
+revoke update (balance, stripe_account_id) on profiles from authenticated, anon;
+
+-- Status do pagamento do pedido — o pedido só existe "de verdade" (aparece
+-- pro restaurante) depois que o Stripe confirmar o pagamento via webhook.
+alter table orders add column if not exists payment_status text not null default 'pendente';
+-- payment_status possíveis: pendente | pago | falhou
+alter table orders add column if not exists stripe_payment_intent_id text;
+
+-- Histórico de saques, para você conseguir auditar cada transferência feita.
+create table if not exists payouts (
+  id uuid primary key default gen_random_uuid(),
+  recipient_type text not null check (recipient_type in ('restaurante', 'entregador')),
+  recipient_id uuid not null,
+  amount numeric(10,2) not null,
+  stripe_transfer_id text,
+  status text not null default 'concluido', -- concluido | falhou
+  created_at timestamp with time zone default now()
+);
+alter table payouts enable row level security;
+drop policy if exists "usuário vê seus próprios saques" on payouts;
+create policy "usuário vê seus próprios saques" on payouts
+  for select using (recipient_id = auth.uid());
+-- Sem política de insert pro público de propósito: saques só são registrados
+-- pela Edge Function de saque, que usa a service role (acesso total).
+
+-- Soma ao saldo do restaurante de forma atômica (evita perder crédito se
+-- dois pagamentos forem confirmados ao mesmo tempo).
+create or replace function public.increment_restaurant_balance(p_restaurant_id uuid, p_amount numeric)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update restaurants set balance = balance + p_amount where id = p_restaurant_id;
+$$;
+-- Esta função não confere quem está chamando, então só pode ser executada
+-- pela Edge Function do webhook do Stripe (que usa a service role). Se
+-- qualquer usuário autenticado pudesse chamá-la, daria pra inflar o saldo
+-- de qualquer restaurante à vontade.
+revoke execute on function public.increment_restaurant_balance(uuid, numeric) from public, authenticated, anon;
+
+-- Marca a entrega como concluída E credita o saldo do entregador em uma
+-- única operação garantida pelo próprio banco — assim, o valor do saldo
+-- nunca pode ser manipulado direto pelo navegador do entregador.
+create or replace function public.complete_delivery(p_order_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_courier_id uuid;
+  v_fee numeric;
+  v_status text;
+begin
+  select courier_id, delivery_fee, status into v_courier_id, v_fee, v_status
+  from orders where id = p_order_id;
+
+  if v_courier_id is null or v_courier_id <> auth.uid() then
+    raise exception 'Você não é o entregador responsável por este pedido.';
+  end if;
+  if v_status = 'entregue' then
+    raise exception 'Este pedido já foi marcado como entregue.';
+  end if;
+
+  update orders set status = 'entregue' where id = p_order_id;
+  update profiles set balance = balance + coalesce(v_fee, 0) where id = v_courier_id;
+end;
+$$;
+
+-- ------------------------------------------------------------
 -- CRIAÇÃO AUTOMÁTICA DE PERFIL (E RESTAURANTE, SE FOR O CASO)
 -- Roda dentro do banco com privilégio elevado, então funciona mesmo
 -- antes da confirmação de e-mail.

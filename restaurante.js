@@ -82,6 +82,7 @@
       $("panel-" + btn.dataset.tab).classList.add("active");
       if (btn.dataset.tab === "orders") loadOrders();
       if (btn.dataset.tab === "menu") loadMenu();
+      if (btn.dataset.tab === "balance") loadBalance();
     });
   });
 
@@ -347,6 +348,64 @@
     input.value = "";
     await window.DB.sendMessage(chatOrderId, "restaurante", content, "restaurante");
   });
+
+  /* ---------------- SALDO E PAGAMENTOS ---------------- */
+  async function loadBalance() {
+    // Recarrega os dados do restaurante para pegar o saldo mais recente.
+    myRestaurant = await window.DB.getMyRestaurant(currentUser.id);
+    $("balanceValue").textContent = "R$ " + Number(myRestaurant.balance || 0).toFixed(2).replace(".", ",");
+    renderStripeConnectBox();
+  }
+
+  function renderStripeConnectBox() {
+    const box = $("stripeConnectBox");
+    if (!myRestaurant.stripeAccountId) {
+      box.innerHTML = `
+        <p class="stripe-status">Você ainda não conectou uma conta Stripe. Conecte para poder sacar seu saldo.</p>
+        <button class="primary-btn" id="connectStripeBtn">Conectar conta Stripe</button>
+      `;
+      $("connectStripeBtn").addEventListener("click", async () => {
+        const btn = $("connectStripeBtn");
+        btn.disabled = true;
+        btn.textContent = "Abrindo...";
+        try {
+          const { url } = await window.DB.connectStripeAccount("restaurante", myRestaurant.id);
+          if (url) window.location.href = url;
+          else {
+            alert("Conta conectada (modo demonstração).");
+            loadBalance();
+          }
+        } catch (err) {
+          alert("Não foi possível conectar: " + ((err && err.message) || err));
+          btn.disabled = false;
+          btn.textContent = "Conectar conta Stripe";
+        }
+      });
+    } else {
+      box.innerHTML = `
+        <p class="stripe-status">Conta Stripe conectada.</p>
+        <button class="primary-btn green" id="payoutBtn">Sacar saldo</button>
+      `;
+      $("payoutBtn").addEventListener("click", async () => {
+        const btn = $("payoutBtn");
+        const msg = $("payoutMsg");
+        msg.style.display = "none";
+        btn.disabled = true;
+        btn.textContent = "Processando...";
+        try {
+          const { amount } = await window.DB.requestPayout("restaurante", myRestaurant.id);
+          alert("Saque de R$ " + Number(amount).toFixed(2).replace(".", ",") + " enviado com sucesso!");
+          await loadBalance();
+        } catch (err) {
+          msg.textContent = (err && err.message) || String(err);
+          msg.style.display = "block";
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Sacar saldo";
+        }
+      });
+    }
+  }
 
   /* ---------------- INICIALIZAÇÃO ---------------- */
   function showDashboard() {

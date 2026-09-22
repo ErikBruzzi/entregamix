@@ -24,6 +24,13 @@
     - calculateDeliveryFee(restaurantId, address)      -> { distanceKm, durationMin, fee }  (usa a Edge Function + Google Maps)
     - getMenu(restaurantId)                            -> [{ id, name, description, price, imageUrl }]
     - createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) -> { order }
+      (usado só no modo demo agora — no modo real, o pedido é criado dentro da createPaymentIntent)
+    - createPaymentIntent({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total })
+      -> { clientSecret, orderId }
+      Cria o pedido (pendente de pagamento) e a cobrança no Stripe. Use o
+      clientSecret com o Stripe.js para coletar o pagamento no navegador.
+      No modo demo, clientSecret vem null — nesse caso pule a etapa de
+      pagamento e trate o pedido como já confirmado.
     - getOrders(userId)                                -> [{ id, restaurantName, status, total, foodSubtotal, deliveryFee, createdAt, items, courierId }]
 
     Restaurante (dono):
@@ -107,7 +114,7 @@
 
       async getSession() {
         const { data } = await client.auth.getSession();
-        return data.session ? { user: data.session.user } : null;
+        return data.session ? { user: data.session.user, accessToken: data.session.access_token } : null;
       },
 
       onAuthChange(callback) {
@@ -119,11 +126,11 @@
       async getProfile(userId) {
         const { data, error } = await client
           .from("profiles")
-          .select("name, email, phone, address, role, city")
+          .select("name, email, phone, address, role, city, balance, stripe_account_id")
           .eq("id", userId)
           .maybeSingle();
         if (error) throw error;
-        if (data) return data;
+        if (data) return { ...data, stripeAccountId: data.stripe_account_id };
 
         // Login sem perfil correspondente (ex.: criado antes do gatilho automático).
         const { data: authData } = await client.auth.getUser();
@@ -134,7 +141,7 @@
           .select()
           .single();
         if (createError) throw createError;
-        return created;
+        return { ...created, stripeAccountId: created.stripe_account_id };
       },
 
       async updateProfile(userId, updates) {
@@ -229,6 +236,66 @@
         return { order: data };
       },
 
+      async createPaymentIntent({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
+        const session = await this.getSession();
+        const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/create-payment-intent", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: config.SUPABASE_ANON_KEY,
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({
+            restaurantId,
+            items,
+            address,
+            deliveryCity,
+            foodSubtotal,
+            deliveryFee,
+            deliveryDistanceKm,
+            total,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Não foi possível iniciar o pagamento.");
+        return data; // { clientSecret, orderId }
+      },
+
+      async connectStripeAccount(type, id) {
+        const session = await this.getSession();
+        const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/connect-stripe-account", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: config.SUPABASE_ANON_KEY,
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ type, id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Não foi possível conectar sua conta Stripe.");
+        return data; // { url }
+      },
+
+      async requestPayout(type, id) {
+        const session = await this.getSession();
+        const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/request-payout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: config.SUPABASE_ANON_KEY,
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ type, id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Não foi possível processar o saque.");
+        return data; // { amount, transferId }
+      },
+
       async getOrders(userId) {
         const { data, error } = await client
           .from("orders")
@@ -255,7 +322,7 @@
       async getMyRestaurant(ownerId) {
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active")
+          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active, balance, stripe_account_id")
           .eq("owner_id", ownerId)
           .maybeSingle();
         if (error) throw error;
@@ -270,6 +337,8 @@
           deliveryBaseFee: data.delivery_base_fee,
           deliveryPricePerKm: data.delivery_price_per_km,
           active: data.active,
+          balance: data.balance,
+          stripeAccountId: data.stripe_account_id,
         };
       },
 
@@ -391,6 +460,7 @@
           .from("orders")
           .select("id, status, total, food_subtotal, delivery_fee, created_at, address, courier_id, pickup_code, order_items(name, price, quantity)")
           .eq("restaurant_id", restaurantId)
+          .eq("payment_status", "pago")
           .order("created_at", { ascending: false });
         if (error) throw error;
         return (data || []).map((o) => ({
@@ -475,7 +545,7 @@
       },
 
       async confirmDelivery(orderId) {
-        const { error } = await client.from("orders").update({ status: "entregue" }).eq("id", orderId);
+        const { error } = await client.rpc("complete_delivery", { p_order_id: orderId });
         if (error) throw error;
       },
 
@@ -657,6 +727,45 @@
         orders.unshift(order);
         return { order };
       },
+      async createPaymentIntent(orderData) {
+        // Sem Stripe de verdade no modo demo: cria o pedido direto, como se
+        // o pagamento já tivesse sido aprovado na hora, e credita o saldo do
+        // restaurante do mesmo jeito que o webhook faria de verdade.
+        const { order } = await this.createOrder(orderData);
+        order.status = "recebido";
+        order.paymentStatus = "pago";
+        const r = demoRestaurants.find((r) => r.id === orderData.restaurantId);
+        if (r) {
+          const commissionPercent = 10;
+          const commission = (orderData.foodSubtotal || 0) * (commissionPercent / 100);
+          r.balance = (r.balance || 0) + Math.max(0, (orderData.foodSubtotal || 0) - commission);
+        }
+        return { clientSecret: null, orderId: order.id };
+      },
+      async connectStripeAccount(type, id) {
+        if (type === "restaurante") {
+          const r = demoRestaurants.find((r) => r.id === id);
+          if (r) r.stripeAccountId = "acct_demo";
+        } else if (profile) {
+          profile.stripeAccountId = "acct_demo";
+        }
+        return { url: null }; // modo demo: nada para abrir, já "conecta" na hora
+      },
+      async requestPayout(type, id) {
+        if (type === "restaurante") {
+          const r = demoRestaurants.find((r) => r.id === id);
+          if (!r) throw new Error("Restaurante não encontrado.");
+          const amount = Number(r.balance || 0);
+          if (amount <= 0) throw new Error("Você não tem saldo disponível para sacar.");
+          r.balance = 0;
+          return { amount, transferId: "demo" };
+        } else {
+          const amount = Number((profile && profile.balance) || 0);
+          if (amount <= 0) throw new Error("Você não tem saldo disponível para sacar.");
+          if (profile) profile.balance = 0;
+          return { amount, transferId: "demo" };
+        }
+      },
       async getOrders(userId) {
         return orders.filter((o) => o.userId === userId);
       },
@@ -729,7 +838,10 @@
       },
       async confirmDelivery(orderId) {
         const o = findOrder(orderId);
-        if (o) o.status = "entregue";
+        if (o && o.status !== "entregue") {
+          o.status = "entregue";
+          if (profile) profile.balance = (profile.balance || 0) + Number(o.deliveryFee || 0);
+        }
       },
 
       /* ---------- CHAT (simulado, só nesta aba) ---------- */
