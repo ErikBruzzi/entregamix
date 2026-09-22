@@ -1,0 +1,32 @@
+# Configuração das Edge Functions do EntregaMix.
+#
+# Por padrão, o Supabase exige um token JWT válido em TODA chamada às Edge
+# Functions — inclusive na requisição de "preflight" (OPTIONS) que o
+# navegador manda automaticamente antes de qualquer POST feito a partir do
+# app. Só que o navegador nunca envia o cabeçalho Authorization nesse
+# preflight, então o Supabase rejeitava a chamada antes mesmo do código da
+# função rodar, quebrando o CORS com o erro:
+#   "Response to preflight request doesn't pass access control check:
+#    It does not have HTTP ok status."
+#
+# A correção é desligar essa verificação automática (verify_jwt) para cada
+# função abaixo. Isso é seguro aqui porque cada função já faz sua própria
+# checagem de autenticação/autorização por dentro do código:
+#   - create-mp-payment e request-mp-payout: leem o token do usuário do
+#     cabeçalho Authorization manualmente e chamam supabase.auth.getUser().
+#   - mp-webhook: é chamada pelo próprio Mercado Pago (nunca vai ter um JWT
+#     do Supabase) e valida a autenticidade via assinatura x-signature.
+#   - calculate-delivery-fee: usa a chave anon, que também não é um JWT de
+#     usuário autenticado.
+
+[functions.create-mp-payment]
+verify_jwt = false
+
+[functions.mp-webhook]
+verify_jwt = false
+
+[functions.request-mp-payout]
+verify_jwt = false
+
+[functions.calculate-delivery-fee]
+verify_jwt = false
