@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>EntregaMix · Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red:#D6202A; --red-dark:#A81620; --green:#167A46; --green-dark:#0F5C34;
+    --ink:#171717; --ink-soft:#6B6B6B; --line:#ECECEC; --bg:#FFFFFF; --surface:#F7F7F7; --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink); font-family:'Inter',sans-serif; }
+  h1,h2,h3,.brand { font-family:'Sora',sans-serif; }
+  button { font-family:inherit; cursor:pointer; border:none; }
+  input { font-family:inherit; }
+
+  #app { max-width:720px; margin:0 auto; min-height:100vh; padding-bottom:60px; }
+  .topbar { background:var(--ink); color:#fff; padding:18px 20px 16px; }
+  .topbar-stripe { height:4px; display:flex; margin:-18px -20px 14px; }
+  .topbar-stripe span { flex:1; }
+  .topbar-stripe span:nth-child(1){background:var(--red);}
+  .topbar-stripe span:nth-child(2){background:#fff;}
+  .topbar-stripe span:nth-child(3){background:var(--green);}
+  .brand { font-size:19px; font-weight:800; }
+  .brand span { color:var(--red); }
+  .topbar-sub { font-size:13px; color:#cfcfcf; margin-top:2px; }
+  a.back-link { color:#cfcfcf; font-size:13px; text-decoration:none; }
+
+  .content { padding:20px; }
+
+  .field { margin-bottom:14px; }
+  .field label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:var(--ink-soft); }
+  .field input { width:100%; padding:13px 14px; border:1px solid var(--line); border-radius:10px; font-size:15px; outline:none; background:#fff; }
+  .field input:focus { border-color:var(--green); }
+
+  .primary-btn { background:var(--red); color:#fff; padding:14px 22px; border-radius:12px; font-weight:700; font-size:14px; }
+  .primary-btn.green { background:var(--green); }
+  .primary-btn.ink { background:var(--ink); }
+  .secondary-btn { background:var(--surface); color:var(--ink); padding:10px 16px; border-radius:10px; font-weight:600; font-size:13px; }
+  .error-msg { font-size:13px; color:var(--red-dark); margin-top:10px; display:none; }
+
+  .summary-row { display:flex; gap:12px; margin-bottom:22px; flex-wrap:wrap; }
+  .summary-card { flex:1; min-width:140px; background:var(--ink); color:#fff; border-radius:16px; padding:18px; }
+  .summary-card .label { font-size:12px; color:#cfcfcf; }
+  .summary-card .value { font-size:24px; font-weight:800; margin-top:4px; font-family:'Sora',sans-serif; }
+
+  .filter-row { display:flex; gap:8px; margin-bottom:16px; }
+  .filter-btn { background:var(--surface); color:var(--ink-soft); padding:8px 14px; border-radius:20px; font-weight:700; font-size:13px; }
+  .filter-btn.active { background:var(--ink); color:#fff; }
+
+  .user-card { border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin-bottom:12px; }
+  .user-card .row { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  .user-card .name { font-weight:700; font-size:15px; }
+  .user-card .type-badge { font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; margin-left:8px; vertical-align:middle; }
+  .type-badge.restaurante { background:#FFE3D6; color:var(--red-dark); }
+  .type-badge.entregador { background:#DDEFE3; color:var(--green-dark); }
+  .user-card .balance { font-weight:800; font-size:18px; font-family:'Sora',sans-serif; white-space:nowrap; }
+  .user-card .pix-line { font-size:13px; color:var(--ink-soft); margin-top:6px; }
+  .user-card .pending-badge { font-size:12px; font-weight:700; color:#A66B00; background:#FFF1D6; padding:3px 9px; border-radius:20px; margin-top:8px; display:inline-block; }
+  .user-card .actions { margin-top:12px; }
+  .empty-state { text-align:center; color:var(--ink-soft); font-size:14px; padding:40px 20px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-stripe"><span></span><span></span><span></span></div>
+    <a class="back-link" href="index.html">← Voltar ao app</a>
+    <div class="brand" style="margin-top:6px;">Entrega<span>Mix</span> · Admin</div>
+    <div class="topbar-sub">Gestão de saldos e pagamentos</div>
+  </div>
+
+  <div class="content">
+    <div class="login-gate" id="loginGate">
+      <h2>Entrar como administrador</h2>
+      <form id="loginForm">
+        <div class="field"><label>E-mail</label><input type="email" id="gateEmail" required /></div>
+        <div class="field"><label>Senha</label><input type="password" id="gatePassword" required minlength="6" /></div>
+        <button class="primary-btn" type="submit" id="gateSubmit">Entrar</button>
+      </form>
+      <p class="error-msg" id="gateError"></p>
+    </div>
+
+    <div id="dashboardContent" style="display:none;">
+      <div class="summary-row">
+        <div class="summary-card">
+          <div class="label">Saldo total pendente</div>
+          <div class="value" id="totalPending">R$ 0,00</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Contas com saldo</div>
+          <div class="value" id="totalAccounts">0</div>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <button class="filter-btn active" data-filter="todos">Todos</button>
+        <button class="filter-btn" data-filter="restaurante">Restaurantes</button>
+        <button class="filter-btn" data-filter="entregador">Entregadores</button>
+        <button class="filter-btn" data-filter="com-saldo">Só com saldo</button>
+      </div>
+
+      <div id="usersList"></div>
+
+      <button class="secondary-btn" id="refreshBtn" style="margin-top:10px;">Atualizar lista</button>
+      <button class="primary-btn ink" style="margin-top:24px; display:block;" id="logoutBtn">Sair</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="db-adapter.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

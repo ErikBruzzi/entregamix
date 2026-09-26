@@ -68,6 +68,18 @@
     - getPendingPayout(type, id)                       -> null | { id, amount, created_at }
       Verifica se já existe uma solicitação de saque aguardando pagamento.
 
+    Comprovante de pedido:
+    - getReceipt(orderId)                              -> null | { restaurantName, items, foodSubtotal, deliveryFee, total, paymentMethod, address, paidAt }
+      Só existe (e só é acessível) até 30 dias depois do pagamento — depois
+      disso o Supabase apaga o registro sozinho.
+
+    Admin (só funciona pra conta com profiles.is_admin = true):
+    - getAdminData()                                   -> [{ type, id, name, balance, pixKey, pixKeyType, pixOwnerDocument, pendingPayout }]
+      Lista todo mundo (restaurantes e entregadores) com saldo e chave PIX.
+    - settlePayout(type, id)                           -> { amount }
+      Marca o saldo atual dessa pessoa como pago (zera o saldo e registra
+      em payouts como "concluido") — usado depois de fazer o Pix manual.
+
     Chat (usado pelos três papéis, um pedido pode ter até 2 conversas):
     - getMessages(orderId, channel)                    -> [{ id, senderId, senderRole, content, createdAt }]
       channel é 'restaurante' (cliente↔restaurante) ou 'entregador' (cliente↔entregador)
@@ -339,11 +351,73 @@
         return data; // null, ou { id, amount, created_at }
       },
 
+      async getReceipt(orderId) {
+        const res = await fetch(
+          config.SUPABASE_URL + "/functions/v1/get-receipt?order_id=" + encodeURIComponent(orderId),
+          { headers: { apikey: config.SUPABASE_ANON_KEY, Authorization: "Bearer " + config.SUPABASE_ANON_KEY } }
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 404) return null;
+          throw new Error(data.error || "Não foi possível carregar o comprovante.");
+        }
+        const r = data.receipt;
+        return {
+          restaurantName: r.restaurant_name,
+          items: r.items,
+          foodSubtotal: r.food_subtotal,
+          deliveryFee: r.delivery_fee,
+          total: r.total,
+          paymentMethod: r.payment_method,
+          address: r.address,
+          paidAt: r.paid_at,
+        };
+      },
+
+      async getAdminData() {
+        const session = await this.getSession();
+        const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/admin-data", {
+          headers: { apikey: config.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Não foi possível carregar os dados.");
+        return data.items.map((it) => ({
+          type: it.type,
+          id: it.id,
+          name: it.name,
+          balance: it.balance,
+          pixKey: it.pixKey,
+          pixKeyType: it.pixKeyType,
+          pixOwnerDocument: it.pixOwnerDocument,
+          pendingPayout: it.pendingPayout
+            ? { amount: it.pendingPayout.amount, createdAt: it.pendingPayout.createdAt }
+            : null,
+        }));
+      },
+
+      async settlePayout(type, id) {
+        const session = await this.getSession();
+        const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/admin-settle-payout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: config.SUPABASE_ANON_KEY,
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ type, id }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Não foi possível marcar como pago.");
+        return data; // { amount }
+      },
+
       async getOrders(userId) {
         const { data, error } = await client
           .from("orders")
           .select(
-            "id, status, total, food_subtotal, delivery_fee, created_at, courier_id, restaurants(name), order_items(name, price, quantity)"
+            "id, status, payment_status, total, food_subtotal, delivery_fee, created_at, courier_id, restaurants(name), order_items(name, price, quantity)"
           )
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
@@ -352,6 +426,7 @@
           id: o.id,
           restaurantName: o.restaurants ? o.restaurants.name : "Restaurante",
           status: o.status,
+          paymentStatus: o.payment_status,
           total: o.total,
           foodSubtotal: o.food_subtotal,
           deliveryFee: o.delivery_fee,
@@ -816,6 +891,42 @@
       async getPendingPayout(type, id) {
         return demoPendingPayouts[type + ":" + id] || null;
       },
+
+      async getReceipt(_orderId) {
+        return null; // sem comprovantes persistidos no modo demonstração
+      },
+
+      async getAdminData() {
+        return [
+          ...demoRestaurants.map((r) => ({
+            type: "restaurante",
+            id: r.id,
+            name: r.name,
+            balance: Number(r.balance || 0),
+            pixKey: r.pixKey || null,
+            pixKeyType: r.pixKeyType || null,
+            pixOwnerDocument: r.pixOwnerDocument || null,
+            pendingPayout: demoPendingPayouts["restaurante:" + r.id] || null,
+          })),
+        ];
+      },
+
+      async settlePayout(type, id) {
+        if (type === "restaurante") {
+          const r = demoRestaurants.find((r) => r.id === id);
+          if (!r || !r.balance) throw new Error("Essa conta não tem saldo disponível.");
+          const amount = Number(r.balance);
+          r.balance = 0;
+          delete demoPendingPayouts[type + ":" + id];
+          return { amount };
+        }
+        if (!profile || !profile.balance) throw new Error("Essa conta não tem saldo disponível.");
+        const amount = Number(profile.balance);
+        profile.balance = 0;
+        delete demoPendingPayouts[type + ":" + id];
+        return { amount };
+      },
+
       async getOrders(userId) {
         return orders.filter((o) => o.userId === userId);
       },

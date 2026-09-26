@@ -38,6 +38,7 @@ alter table restaurants add column if not exists lat double precision;
 alter table restaurants add column if not exists lng double precision;
 alter table restaurants add column if not exists delivery_base_fee numeric(10,2) default 5.00;
 alter table restaurants add column if not exists delivery_price_per_km numeric(10,2) default 1.50;
+alter table restaurants add column if not exists image_url text; -- ícone do restaurante no menu principal (recomendado: 512x512px)
 comment on column restaurants.delivery_fee is 'Coluna antiga (taxa fixa). Substituída por delivery_base_fee + delivery_price_per_km, calculados por distância. Mantida só por compatibilidade.';
 
 create table if not exists menu_items (
@@ -359,7 +360,7 @@ create policy "dono exclui imagens do seu restaurante" on storage.objects
 -- ------------------------------------------------------------
 create table if not exists platform_settings (
   id boolean primary key default true check (id),
-  commission_percent numeric(5,2) not null default 10.00, -- % sobre o valor da comida
+  commission_percent numeric(5,2) not null default 11.00, -- % sobre o valor da comida (10% comissão + 1% taxa de pagamento online)
   commission_fixed numeric(10,2) not null default 0.00,   -- valor fixo somado por pedido, se quiser usar
   updated_at timestamp with time zone default now()
 );
@@ -420,6 +421,51 @@ create policy "usuário vê seus próprios saques" on payouts
   for select using (recipient_id = auth.uid());
 -- Sem política de insert pro público de propósito: saques só são registrados
 -- pela Edge Function de saque, que usa a service role (acesso total).
+
+-- ------------------------------------------------------------
+-- ADMIN — dashboard de gestão de saldos (admin.html)
+-- Enquanto o saque automático (Payouts) não é liberado pelo Mercado
+-- Pago, os repasses são feitos manualmente via Pix num dia fixo do mês.
+-- Essa coluna marca quem tem acesso ao painel /admin.html.
+-- ------------------------------------------------------------
+alter table profiles add column if not exists is_admin boolean not null default false;
+revoke update (is_admin) on profiles from authenticated, anon;
+-- Depois de rodar este arquivo, marque manualmente sua própria conta:
+--   update profiles set is_admin = true where email = 'SEU_EMAIL_AQUI';
+
+-- ------------------------------------------------------------
+-- COMPROVANTES DE PEDIDO (recibos)
+-- Retrato do pedido no momento em que o pagamento foi confirmado, guardado
+-- separado da tabela orders. Fica acessível por 30 dias (expires_at) e
+-- depois é apagado automaticamente pelo job pg_cron abaixo, pra não
+-- crescer o banco pra sempre. Sem policy de select pública de propósito:
+-- a leitura só acontece pela Edge Function get-receipt (service role),
+-- um recibo por vez a partir do order_id — nunca uma listagem.
+-- ------------------------------------------------------------
+create table if not exists receipts (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references orders (id) on delete cascade,
+  restaurant_name text not null,
+  items jsonb not null,
+  food_subtotal numeric(10,2) not null,
+  delivery_fee numeric(10,2) not null,
+  total numeric(10,2) not null,
+  payment_method text,
+  address text,
+  paid_at timestamp with time zone not null default now(),
+  created_at timestamp with time zone not null default now(),
+  expires_at timestamp with time zone not null default (now() + interval '30 days')
+);
+create index if not exists receipts_order_id_idx on receipts (order_id);
+create index if not exists receipts_expires_at_idx on receipts (expires_at);
+alter table receipts enable row level security;
+
+create extension if not exists pg_cron;
+select cron.schedule(
+  'delete-expired-receipts',
+  '0 4 * * *',
+  $cron$ delete from receipts where expires_at < now(); $cron$
+);
 
 -- Soma ao saldo do restaurante de forma atômica (evita perder crédito se
 -- dois pagamentos forem confirmados ao mesmo tempo).

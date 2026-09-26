@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>EntregaMix · Comprovante</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red:#D6202A; --red-dark:#A81620; --green:#167A46; --green-dark:#0F5C34;
+    --ink:#171717; --ink-soft:#6B6B6B; --line:#ECECEC; --bg:#FFFFFF; --surface:#F7F7F7; --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; background:var(--surface); color:var(--ink); font-family:'Inter',sans-serif; }
+  h1,h2,h3,.brand { font-family:'Sora',sans-serif; }
+
+  #app { max-width:480px; margin:0 auto; min-height:100vh; padding:20px 16px 50px; }
+  .brand { font-size:19px; font-weight:800; text-align:center; margin-bottom:4px; }
+  .brand span { color:var(--red); }
+  .subtitle { text-align:center; font-size:13px; color:var(--ink-soft); margin-bottom:20px; }
+
+  .receipt-card { background:#fff; border-radius:var(--radius); padding:22px; box-shadow:0 2px 12px rgba(0,0,0,0.06); }
+  .receipt-card .label { font-size:12px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.03em; }
+  .receipt-card .restaurant-name { font-size:19px; font-weight:800; font-family:'Sora',sans-serif; margin-top:2px; margin-bottom:16px; }
+  .receipt-card .paid-date { font-size:13px; color:var(--ink-soft); margin-bottom:18px; }
+  .status-pill { display:inline-block; background:#DDEFE3; color:var(--green-dark); font-size:12px; font-weight:700; padding:4px 12px; border-radius:20px; margin-bottom:18px; }
+
+  .item-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .item-row .qty { color:var(--ink-soft); margin-right:6px; }
+
+  .totals-row { display:flex; justify-content:space-between; padding:6px 0; font-size:14px; }
+  .totals-row.total { font-weight:800; font-size:17px; font-family:'Sora',sans-serif; border-top:1px solid var(--line); margin-top:8px; padding-top:12px; }
+
+  .meta-line { font-size:13px; color:var(--ink-soft); margin-top:4px; }
+  .expiry-note { text-align:center; font-size:12px; color:var(--ink-soft); margin-top:18px; }
+  .empty-state { text-align:center; color:var(--ink-soft); font-size:14px; padding:60px 20px; }
+  .back-link { display:block; text-align:center; margin-top:20px; color:var(--ink-soft); font-size:13px; text-decoration:none; }
+
+  @media print {
+    body { background:#fff; }
+    .back-link, .expiry-note { display:none; }
+    .receipt-card { box-shadow:none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="brand">Entrega<span>Mix</span></div>
+  <div class="subtitle">Comprovante de pedido</div>
+  <div id="receiptContent">
+    <div class="empty-state">Carregando...</div>
+  </div>
+  <a class="back-link" href="index.html">← Voltar ao app</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="db-adapter.js"></script>
+<script src="recibo.js"></script>
+</body>
+</html>
