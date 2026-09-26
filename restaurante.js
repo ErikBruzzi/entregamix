@@ -93,8 +93,6 @@
     $("settAddress").value = myRestaurant.address || "";
     $("settCity").value = myRestaurant.city || "";
     $("settEta").value = myRestaurant.etaMinutes || 30;
-    $("settBaseFee").value = myRestaurant.deliveryBaseFee ?? 5;
-    $("settPerKm").value = myRestaurant.deliveryPricePerKm ?? 1.5;
     $("settActive").checked = !!myRestaurant.active;
     renderRestaurantIcon();
   }
@@ -142,8 +140,6 @@
         address: $("settAddress").value.trim(),
         city: $("settCity").value.trim(),
         etaMinutes: parseInt($("settEta").value, 10),
-        deliveryBaseFee: parseFloat($("settBaseFee").value),
-        deliveryPricePerKm: parseFloat($("settPerKm").value),
         active: $("settActive").checked,
       };
       const { restaurant } = await window.DB.updateMyRestaurant(myRestaurant.id, updates);

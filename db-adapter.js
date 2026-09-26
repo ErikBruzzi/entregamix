@@ -26,7 +26,10 @@
 
     Cliente:
     - getRestaurants()                                 -> [{ id, name, category, etaMinutes, deliveryBaseFee }]
-    - calculateDeliveryFee(restaurantId, address)      -> { distanceKm, durationMin, fee }  (usa a Edge Function + Google Maps)
+      deliveryBaseFee vem de platform_settings — é a mesma pra todo
+      restaurante (a taxa de entrega não é mais definida pelo restaurante,
+      veja calculateDeliveryFee).
+    - calculateDeliveryFee(restaurantId, address)      -> { distanceKm, durationMin, fee }  (usa a Edge Function + LocationIQ; a taxa é sempre a da plataforma, igual pra qualquer restaurante — só a distância muda o valor)
     - getMenu(restaurantId)                            -> [{ id, name, description, price, imageUrl }]
     - createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) -> { order }
       (usado só no modo demo agora — no modo real, o pedido é criado dentro da createMpPayment)
@@ -41,7 +44,9 @@
 
     Restaurante (dono):
     - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryBaseFee, deliveryPricePerKm, active, balance, pixKey, pixKeyType, pixOwnerDocument }
-    - updateMyRestaurant(restaurantId, data)           -> { restaurant }  (data pode incluir deliveryBaseFee, deliveryPricePerKm, pixKey, pixKeyType, pixOwnerDocument)
+      deliveryBaseFee/deliveryPricePerKm aqui são só informativos (vêm de
+      platform_settings) — o restaurante não pode alterá-los.
+    - updateMyRestaurant(restaurantId, data)           -> { restaurant }  (data pode incluir name, category, address, city, etaMinutes, active, pixKey, pixKeyType, pixOwnerDocument, imageUrl — NÃO aceita mais deliveryBaseFee/deliveryPricePerKm, a taxa de entrega é definida pela plataforma)
     - getMyMenu(restaurantId)                          -> [{ id, name, description, price, available, imageUrl }]
     - createMenuItem(restaurantId, data)               -> { item }  (data pode incluir imageUrl)
     - updateMenuItem(itemId, data)                     -> { item }
@@ -239,18 +244,24 @@
 
       /* ---------- CLIENTE ---------- */
       async getRestaurants() {
-        const { data, error } = await client
-          .from("restaurants")
-          .select("id, name, category, city, eta_minutes, delivery_base_fee, image_url")
-          .eq("active", true);
+        // A taxa base de entrega é a mesma pra todo mundo (definida pela
+        // plataforma, não por cada restaurante — veja calculateDeliveryFee),
+        // então busca uma vez só e usa pra montar o "a partir de R$X" de
+        // cada card.
+        const [{ data, error }, { data: settings, error: settingsError }] = await Promise.all([
+          client.from("restaurants").select("id, name, category, city, eta_minutes, image_url").eq("active", true),
+          client.from("platform_settings").select("delivery_base_fee").eq("id", true).single(),
+        ]);
         if (error) throw error;
+        if (settingsError) throw settingsError;
+        const baseFee = Number(settings?.delivery_base_fee ?? 5);
         return (data || []).map((r) => ({
           id: r.id,
           name: r.name,
           category: r.category,
           city: r.city,
           etaMinutes: r.eta_minutes,
-          deliveryBaseFee: r.delivery_base_fee,
+          deliveryBaseFee: baseFee,
           imageUrl: r.image_url,
         }));
       },
@@ -495,13 +506,17 @@
 
       /* ---------- RESTAURANTE (DONO) ---------- */
       async getMyRestaurant(ownerId) {
-        const { data, error } = await client
-          .from("restaurants")
-          .select("id, name, category, address, city, eta_minutes, delivery_base_fee, delivery_price_per_km, active, balance, pix_key, pix_key_type, pix_owner_document, image_url")
-          .eq("owner_id", ownerId)
-          .maybeSingle();
+        const [{ data, error }, { data: settings, error: settingsError }] = await Promise.all([
+          client
+            .from("restaurants")
+            .select("id, name, category, address, city, eta_minutes, active, balance, pix_key, pix_key_type, pix_owner_document, image_url")
+            .eq("owner_id", ownerId)
+            .maybeSingle(),
+          client.from("platform_settings").select("delivery_base_fee, delivery_price_per_km").eq("id", true).single(),
+        ]);
         if (error) throw error;
         if (!data) return null;
+        if (settingsError) throw settingsError;
         return {
           id: data.id,
           name: data.name,
@@ -509,8 +524,11 @@
           address: data.address,
           city: data.city,
           etaMinutes: data.eta_minutes,
-          deliveryBaseFee: data.delivery_base_fee,
-          deliveryPricePerKm: data.delivery_price_per_km,
+          // Somente informativo: a taxa de entrega é definida pela
+          // plataforma, não pelo restaurante — não faz parte do que
+          // updateMyRestaurant aceita alterar.
+          deliveryBaseFee: Number(settings?.delivery_base_fee ?? 5),
+          deliveryPricePerKm: Number(settings?.delivery_price_per_km ?? 1.5),
           active: data.active,
           balance: data.balance,
           pixKey: data.pix_key,
@@ -538,8 +556,9 @@
           payload.lng = null;
         }
         if (updates.etaMinutes !== undefined) payload.eta_minutes = updates.etaMinutes;
-        if (updates.deliveryBaseFee !== undefined) payload.delivery_base_fee = updates.deliveryBaseFee;
-        if (updates.deliveryPricePerKm !== undefined) payload.delivery_price_per_km = updates.deliveryPricePerKm;
+        // deliveryBaseFee/deliveryPricePerKm não são mais aceitos aqui de
+        // propósito: a taxa de entrega é definida pela plataforma (tabela
+        // platform_settings), não por cada restaurante.
         if (updates.active !== undefined) payload.active = updates.active;
         if (updates.pixKey !== undefined) payload.pix_key = updates.pixKey;
         if (updates.pixKeyType !== undefined) payload.pix_key_type = updates.pixKeyType;
@@ -800,9 +819,14 @@
      ADAPTADOR DEMO (memória local, sem persistência)
   --------------------------------------------------------------------- */
   function buildDemoAdapter() {
+    // Taxa de entrega da PLATAFORMA — igual pra todo restaurante, imitando
+    // o modo real (platform_settings), onde o restaurante não define esse
+    // valor.
+    const PLATFORM_DELIVERY_BASE_FEE = 5;
+    const PLATFORM_DELIVERY_PRICE_PER_KM = 1.5;
     const demoRestaurants = [
-      { id: "r1", ownerId: null, name: "Sabor da Vila", category: "Brasileira", address: "Rua das Flores, 120", etaMinutes: 35, deliveryBaseFee: 5, deliveryPricePerKm: 1.5, active: true },
-      { id: "r2", ownerId: null, name: "Pizzaria Bella", category: "Pizzas", address: "Av. Central, 500", etaMinutes: 40, deliveryBaseFee: 6, deliveryPricePerKm: 1.8, active: true },
+      { id: "r1", ownerId: null, name: "Sabor da Vila", category: "Brasileira", address: "Rua das Flores, 120", etaMinutes: 35, active: true },
+      { id: "r2", ownerId: null, name: "Pizzaria Bella", category: "Pizzas", address: "Av. Central, 500", etaMinutes: 40, active: true },
     ];
     const demoMenus = {
       r1: [
@@ -850,8 +874,6 @@
             category: "Geral",
             address: "",
             etaMinutes: 30,
-            deliveryBaseFee: 5,
-            deliveryPricePerKm: 1.5,
             active: true,
           });
           demoMenus["r-demo"] = [];
@@ -884,16 +906,16 @@
       },
 
       async getRestaurants() {
-        return demoRestaurants.filter((r) => r.active);
+        return demoRestaurants
+          .filter((r) => r.active)
+          .map((r) => ({ ...r, deliveryBaseFee: PLATFORM_DELIVERY_BASE_FEE }));
       },
-      async calculateDeliveryFee(restaurantId, address, _city) {
+      async calculateDeliveryFee(_restaurantId, address, _city) {
         // Sem Google Maps no modo demo: gera uma distância plausível a
-        // partir do texto do endereço, só para simular a experiência.
-        const restaurant = demoRestaurants.find((r) => r.id === restaurantId);
+        // partir do texto do endereço, só para simular a experiência. A
+        // taxa usada é sempre a da plataforma, igual no modo real.
         const distanceKm = Math.round(((address.length % 12) + 1.5) * 10) / 10;
-        const base = restaurant ? Number(restaurant.deliveryBaseFee) : 5;
-        const perKm = restaurant ? Number(restaurant.deliveryPricePerKm) : 1.5;
-        const fee = Math.round((base + perKm * distanceKm) * 100) / 100;
+        const fee = Math.round((PLATFORM_DELIVERY_BASE_FEE + PLATFORM_DELIVERY_PRICE_PER_KM * distanceKm) * 100) / 100;
         return { distanceKm, durationMin: Math.round(distanceKm * 3), fee };
       },
       async getMenu(restaurantId) {

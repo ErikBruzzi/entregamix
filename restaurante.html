@@ -158,13 +158,9 @@
         <div class="field"><label>Categoria</label><input type="text" id="settCategory" placeholder="Ex: Pizzas, Brasileira, Sobremesas" /></div>
         <div class="field"><label>Endereço de retirada (onde o entregador busca o pedido)</label><input type="text" id="settAddress" placeholder="Rua, número, bairro" required /></div>
         <div class="field"><label>Cidade</label><input type="text" id="settCity" placeholder="Ex: Ponte Nova" required /></div>
-        <div class="field-row">
-          <div class="field"><label>Tempo médio de entrega (min)</label><input type="number" id="settEta" min="5" required /></div>
-          <div class="field"><label>Taxa base de entrega (R$)</label><input type="number" id="settBaseFee" min="0" step="0.01" required /></div>
-          <div class="field"><label>Preço por km rodado (R$)</label><input type="number" id="settPerKm" min="0" step="0.01" required /></div>
-        </div>
+        <div class="field"><label>Tempo médio de entrega (min)</label><input type="number" id="settEta" min="5" required /></div>
         <p style="font-size:12px; color:var(--ink-soft); margin-top:-8px; margin-bottom:14px;">
-          A taxa de entrega paga pelo cliente é calculada automaticamente: taxa base + (preço por km × distância até o endereço de entrega).
+          A taxa de entrega é definida pelo Mix (mesma regra para todos os restaurantes: um valor fixo + um valor por km até o endereço do cliente) — não é configurável por aqui, justamente para o frete nunca ficar injusto pro cliente.
         </p>
         <div class="toggle-row">
           <input type="checkbox" id="settActive" style="width:18px; height:18px;" />
