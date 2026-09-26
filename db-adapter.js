@@ -7,7 +7,12 @@
 
   Contrato da interface window.DB (todas as funções são assíncronas):
     Conta / sessão:
-    - signUp({ name, email, phone, password, role, city }) -> { user, session }
+    - signUp({ name, email, phone, password, role, city, termsAccepted }) -> { user, session }
+      termsAccepted precisa ser true (checkbox de "li e concordo com os
+      Termos de Uso" marcada em index.html) — sem isso a função rejeita
+      antes mesmo de chamar o Supabase. Quando aceito, grava
+      terms_accepted_at/terms_version no perfil (não pode ser reescrito
+      depois pelo próprio usuário).
       session vem null se o projeto exigir confirmação de e-mail — nesse caso
       NÃO faça nenhuma chamada autenticada em seguida (getProfile, etc.), pois
       ainda não existe login ativo. Mostre uma mensagem de sucesso e volte
@@ -96,6 +101,11 @@
 */
 
 (function () {
+  // Versão atual dos Termos de Uso (termos.html). Sobe esse número sempre
+  // que o texto dos termos mudar de forma relevante — fica registrado no
+  // perfil de cada usuário qual versão ele aceitou (profiles.terms_version).
+  window.TERMS_VERSION = "1.0";
+
   const config = window.APP_CONFIG || {};
   const isConfigured =
     config.SUPABASE_URL &&
@@ -137,11 +147,23 @@
 
     return {
       /* ---------- CONTA / SESSÃO ---------- */
-      async signUp({ name, email, phone, password, role, city }) {
+      async signUp({ name, email, phone, password, role, city, termsAccepted }) {
+        if (!termsAccepted) {
+          throw new Error("É preciso concordar com os Termos de Uso para criar a conta.");
+        }
         const { data, error } = await client.auth.signUp({
           email,
           password,
-          options: { data: { name, phone, role: role || "cliente", city: city || null } },
+          options: {
+            data: {
+              name,
+              phone,
+              role: role || "cliente",
+              city: city || null,
+              terms_accepted_at: new Date().toISOString(),
+              terms_version: window.TERMS_VERSION,
+            },
+          },
         });
         if (error) throw error;
         // Se data.session vier vazio, o Supabase está exigindo confirmação de
@@ -806,9 +828,20 @@
     }
 
     return {
-      async signUp({ name, email, phone, role }) {
+      async signUp({ name, email, phone, role, termsAccepted }) {
+        if (!termsAccepted) {
+          throw new Error("É preciso concordar com os Termos de Uso para criar a conta.");
+        }
         currentUser = { id: "demo-user", email };
-        profile = { name, email, phone, address: "", role: role || "cliente" };
+        profile = {
+          name,
+          email,
+          phone,
+          address: "",
+          role: role || "cliente",
+          termsAcceptedAt: new Date().toISOString(),
+          termsVersion: window.TERMS_VERSION,
+        };
         if (profile.role === "restaurante") {
           demoRestaurants.push({
             id: "r-demo",

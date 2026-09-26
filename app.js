@@ -51,6 +51,8 @@
     $("fieldName").style.display = authMode === "signup" ? "block" : "none";
     $("fieldRole").style.display = authMode === "signup" ? "block" : "none";
     $("fieldPhone").style.display = authMode === "signup" ? "block" : "none";
+    $("fieldTerms").style.display = authMode === "signup" ? "block" : "none";
+    $("authTerms").checked = false;
     $("switchModeText").innerHTML =
       authMode === "signin"
         ? 'Ainda não tem conta? <a href="#" id="switchModeLink">Criar conta</a>'
@@ -76,10 +78,15 @@
     btn.textContent = "Aguarde...";
     try {
       if (authMode === "signup") {
+        if (!$("authTerms").checked) {
+          alert("Para criar sua conta, você precisa ler e concordar com os Termos de Uso e Política de Repasses.");
+          btn.disabled = false;
+          return;
+        }
         const name = $("authName").value.trim();
         const phone = $("authPhone").value.trim();
         const role = $("authRole").value;
-        const { user, session } = await window.DB.signUp({ name, email, phone, password, role });
+        const { user, session } = await window.DB.signUp({ name, email, phone, password, role, termsAccepted: true });
         currentUser = user;
 
         if (!session) {

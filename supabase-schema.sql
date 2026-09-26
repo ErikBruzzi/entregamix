@@ -20,6 +20,13 @@ create table if not exists profiles (
 alter table profiles add column if not exists role text not null default 'cliente';
 alter table profiles add column if not exists city text;
 
+-- Aceite dos Termos de Uso (termos.html) no cadastro. Preenchido pelo
+-- gatilho handle_new_user a partir do que o app manda no momento do
+-- signUp — não pode ser reescrito depois pelo próprio usuário.
+alter table profiles add column if not exists terms_accepted_at timestamptz;
+alter table profiles add column if not exists terms_version text;
+revoke update (terms_accepted_at, terms_version) on profiles from authenticated, anon;
+
 create table if not exists restaurants (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid references auth.users (id) on delete set null,
@@ -526,18 +533,28 @@ as $$
 declare
   chosen_role text;
   chosen_city text;
+  terms_ts timestamptz;
+  terms_ver text;
 begin
   chosen_role := coalesce(new.raw_user_meta_data->>'role', 'cliente');
   chosen_city := nullif(new.raw_user_meta_data->>'city', '');
+  terms_ver := nullif(new.raw_user_meta_data->>'terms_version', '');
+  begin
+    terms_ts := (new.raw_user_meta_data->>'terms_accepted_at')::timestamptz;
+  exception when others then
+    terms_ts := null;
+  end;
 
-  insert into public.profiles (id, name, email, phone, role, city)
+  insert into public.profiles (id, name, email, phone, role, city, terms_accepted_at, terms_version)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'name', ''),
     new.email,
     coalesce(new.raw_user_meta_data->>'phone', ''),
     chosen_role,
-    chosen_city
+    chosen_city,
+    terms_ts,
+    terms_ver
   )
   on conflict (id) do nothing;
 
