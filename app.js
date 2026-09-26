@@ -115,7 +115,7 @@
         return;
       }
       await loadOrders();
-      showScreen("home");
+      showScreen("account");
     } catch (err) {
       alert("Não foi possível continuar: " + (err.message || err));
     } finally {
