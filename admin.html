@@ -44,6 +44,7 @@
   .primary-btn { background:var(--red); color:#fff; padding:14px 22px; border-radius:12px; font-weight:700; font-size:14px; }
   .primary-btn.green { background:var(--green); }
   .primary-btn.ink { background:var(--ink); }
+  .primary-btn.danger { background:#fff; color:var(--red-dark); border:1px solid var(--red-dark); padding:10px 16px; font-size:13px; }
   .secondary-btn { background:var(--surface); color:var(--ink); padding:10px 16px; border-radius:10px; font-weight:600; font-size:13px; }
   .error-msg { font-size:13px; color:var(--red-dark); margin-top:10px; display:none; }
 
@@ -66,7 +67,14 @@
   .user-card .pix-line { font-size:13px; color:var(--ink-soft); margin-top:6px; }
   .user-card .pending-badge { font-size:12px; font-weight:700; color:#A66B00; background:#FFF1D6; padding:3px 9px; border-radius:20px; margin-top:8px; display:inline-block; }
   .user-card .actions { margin-top:12px; }
+  .user-card.reversed { opacity:0.6; }
   .empty-state { text-align:center; color:var(--ink-soft); font-size:14px; padding:40px 20px; }
+
+  .section-tabs { display:flex; gap:8px; margin:28px 0 16px; border-bottom:1px solid var(--line); }
+  .section-tab { background:none; color:var(--ink-soft); padding:10px 4px; font-weight:700; font-size:14px; border-bottom:2px solid transparent; margin-right:16px; }
+  .section-tab.active { color:var(--ink); border-bottom-color:var(--red); }
+  .section-panel { display:none; }
+  .section-panel.active { display:block; }
 </style>
 </head>
 <body>
@@ -101,14 +109,26 @@
         </div>
       </div>
 
-      <div class="filter-row">
-        <button class="filter-btn active" data-filter="todos">Todos</button>
-        <button class="filter-btn" data-filter="restaurante">Restaurantes</button>
-        <button class="filter-btn" data-filter="entregador">Entregadores</button>
-        <button class="filter-btn" data-filter="com-saldo">Só com saldo</button>
+      <div class="section-tabs">
+        <button class="section-tab active" data-section="saldos">Saldos pendentes</button>
+        <button class="section-tab" data-section="historico">Histórico de pagamentos</button>
       </div>
 
-      <div id="usersList"></div>
+      <div class="section-panel active" id="panelSaldos">
+        <div class="filter-row">
+          <button class="filter-btn active" data-filter="todos">Todos</button>
+          <button class="filter-btn" data-filter="restaurante">Restaurantes</button>
+          <button class="filter-btn" data-filter="entregador">Entregadores</button>
+          <button class="filter-btn" data-filter="com-saldo">Só com saldo</button>
+        </div>
+
+        <div id="usersList"></div>
+      </div>
+
+      <div class="section-panel" id="panelHistorico">
+        <p style="font-size:13px; color:var(--ink-soft); margin:0 0 14px;">Pagamentos já confirmados. Se marcar algo como pago por engano, use "Desfazer" para devolver o valor ao saldo da conta.</p>
+        <div id="historyList"></div>
+      </div>
 
       <button class="secondary-btn" id="refreshBtn" style="margin-top:10px;">Atualizar lista</button>
       <button class="primary-btn ink" style="margin-top:24px; display:block;" id="logoutBtn">Sair</button>

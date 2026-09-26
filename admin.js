@@ -1,6 +1,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   let items = [];
+  let history = [];
   let currentFilter = "todos";
 
   const pixKeyTypeLabel = {
@@ -36,9 +37,12 @@
 
   /* ---------------- DADOS ---------------- */
   async function loadData() {
-    items = await window.DB.getAdminData();
+    const data = await window.DB.getAdminData();
+    items = data.items;
+    history = data.history || [];
     renderSummary();
     renderList();
+    renderHistory();
   }
 
   function renderSummary() {
@@ -115,12 +119,81 @@
     });
   }
 
+  /* ---------------- HISTÓRICO DE PAGAMENTOS ---------------- */
+  function renderHistory() {
+    const list = $("historyList");
+    if (!list) return;
+    if (!history.length) {
+      list.innerHTML = '<div class="empty-state">Nenhum pagamento registrado ainda.</div>';
+      return;
+    }
+    list.innerHTML = history
+      .map((h) => {
+        const date = new Date(h.createdAt);
+        const dateLabel = date.toLocaleDateString("pt-BR") + " às " + date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        const isReversed = h.status === "estornado";
+        return `
+      <div class="user-card${isReversed ? " reversed" : ""}" data-payout-id="${h.id}">
+        <div class="row">
+          <div>
+            <span class="name">${h.name || "(sem nome)"}</span>
+            <span class="type-badge ${h.type}">${h.type === "restaurante" ? "Restaurante" : "Entregador"}</span>
+          </div>
+          <div class="balance">R$ ${Number(h.amount).toFixed(2).replace(".", ",")}</div>
+        </div>
+        <div class="pix-line">Pago em ${dateLabel}${isReversed ? " · <strong>Estornado</strong>" : ""}</div>
+        <div class="actions">
+          ${
+            !isReversed
+              ? `<button class="primary-btn danger" data-action="undo">Desfazer (houve erro)</button>`
+              : ""
+          }
+        </div>
+      </div>`;
+      })
+      .join("");
+
+    list.querySelectorAll('[data-action="undo"]').forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const card = btn.closest(".user-card");
+        const payoutId = card.dataset.payoutId;
+        const entry = history.find((h) => h.id === payoutId);
+        if (
+          !confirm(
+            `Confirma que houve erro nesse pagamento de R$ ${Number(entry.amount).toFixed(2).replace(".", ",")} para "${entry.name}"?\n\nO valor volta para o saldo dessa conta e ela aparecerá novamente na lista de saldos pendentes.`
+          )
+        )
+          return;
+        btn.disabled = true;
+        btn.textContent = "Desfazendo...";
+        try {
+          await window.DB.undoPayout(payoutId);
+          await loadData();
+        } catch (err) {
+          alert("Não foi possível desfazer: " + ((err && err.message) || err));
+          btn.disabled = false;
+          btn.textContent = "Desfazer (houve erro)";
+        }
+      });
+    });
+  }
+
   document.querySelectorAll(".filter-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentFilter = btn.dataset.filter;
       renderList();
+    });
+  });
+
+  document.querySelectorAll(".section-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".section-tab").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".section-panel").forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      const panel = btn.dataset.section === "historico" ? $("panelHistorico") : $("panelSaldos");
+      panel.classList.add("active");
     });
   });
 

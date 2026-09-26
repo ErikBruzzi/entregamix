@@ -412,7 +412,7 @@ create table if not exists payouts (
   recipient_id uuid not null,
   amount numeric(10,2) not null,
   mp_transaction_id text,
-  status text not null default 'concluido', -- concluido | falhou
+  status text not null default 'concluido', -- solicitado | concluido | estornado | falhou
   created_at timestamp with time zone default now()
 );
 alter table payouts enable row level security;

@@ -74,11 +74,18 @@
       disso o Supabase apaga o registro sozinho.
 
     Admin (só funciona pra conta com profiles.is_admin = true):
-    - getAdminData()                                   -> [{ type, id, name, balance, pixKey, pixKeyType, pixOwnerDocument, pendingPayout }]
-      Lista todo mundo (restaurantes e entregadores) com saldo e chave PIX.
+    - getAdminData()                                   -> { items, history }
+      items:   [{ type, id, name, balance, pixKey, pixKeyType, pixOwnerDocument, pendingPayout }]
+               Lista todo mundo (restaurantes e entregadores) com saldo e chave PIX.
+      history: [{ id, type, recipientId, name, amount, status, createdAt }]
+               Últimos pagamentos marcados como pagos ("concluido") ou
+               desfeitos ("estornado"), mais recente primeiro.
     - settlePayout(type, id)                           -> { amount }
       Marca o saldo atual dessa pessoa como pago (zera o saldo e registra
       em payouts como "concluido") — usado depois de fazer o Pix manual.
+    - undoPayout(payoutId)                             -> { amount }
+      Desfaz um pagamento marcado como pago por engano: devolve o valor
+      pro saldo da pessoa e marca o registro como "estornado".
 
     Chat (usado pelos três papéis, um pedido pode ter até 2 conversas):
     - getMessages(orderId, channel)                    -> [{ id, senderId, senderRole, content, createdAt }]
@@ -382,18 +389,29 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Não foi possível carregar os dados.");
-        return data.items.map((it) => ({
-          type: it.type,
-          id: it.id,
-          name: it.name,
-          balance: it.balance,
-          pixKey: it.pixKey,
-          pixKeyType: it.pixKeyType,
-          pixOwnerDocument: it.pixOwnerDocument,
-          pendingPayout: it.pendingPayout
-            ? { amount: it.pendingPayout.amount, createdAt: it.pendingPayout.createdAt }
-            : null,
-        }));
+        return {
+          items: data.items.map((it) => ({
+            type: it.type,
+            id: it.id,
+            name: it.name,
+            balance: it.balance,
+            pixKey: it.pixKey,
+            pixKeyType: it.pixKeyType,
+            pixOwnerDocument: it.pixOwnerDocument,
+            pendingPayout: it.pendingPayout
+              ? { amount: it.pendingPayout.amount, createdAt: it.pendingPayout.createdAt }
+              : null,
+          })),
+          history: (data.history || []).map((h) => ({
+            id: h.id,
+            type: h.type,
+            recipientId: h.recipientId,
+            name: h.name,
+            amount: h.amount,
+            status: h.status,
+            createdAt: h.createdAt,
+          })),
+        };
       },
 
       async settlePayout(type, id) {
@@ -410,6 +428,23 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Não foi possível marcar como pago.");
+        return data; // { amount }
+      },
+
+      async undoPayout(payoutId) {
+        const session = await this.getSession();
+        const token = session ? session.accessToken : config.SUPABASE_ANON_KEY;
+        const res = await fetch(config.SUPABASE_URL + "/functions/v1/admin-undo-payout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: config.SUPABASE_ANON_KEY,
+            Authorization: "Bearer " + token,
+          },
+          body: JSON.stringify({ payoutId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Não foi possível desfazer esse pagamento.");
         return data; // { amount }
       },
 
@@ -763,6 +798,7 @@
     const messages = {};
     const messageListeners = {};
     const demoPendingPayouts = {}; // chave "tipo:id" -> { amount, createdAt }
+    const demoPayoutHistory = []; // [{ id, type, recipientId, name, amount, status, createdAt }]
     let idCounter = 1;
 
     function findOrder(id) {
@@ -897,34 +933,61 @@
       },
 
       async getAdminData() {
-        return [
-          ...demoRestaurants.map((r) => ({
-            type: "restaurante",
-            id: r.id,
-            name: r.name,
-            balance: Number(r.balance || 0),
-            pixKey: r.pixKey || null,
-            pixKeyType: r.pixKeyType || null,
-            pixOwnerDocument: r.pixOwnerDocument || null,
-            pendingPayout: demoPendingPayouts["restaurante:" + r.id] || null,
-          })),
-        ];
+        return {
+          items: [
+            ...demoRestaurants.map((r) => ({
+              type: "restaurante",
+              id: r.id,
+              name: r.name,
+              balance: Number(r.balance || 0),
+              pixKey: r.pixKey || null,
+              pixKeyType: r.pixKeyType || null,
+              pixOwnerDocument: r.pixOwnerDocument || null,
+              pendingPayout: demoPendingPayouts["restaurante:" + r.id] || null,
+            })),
+          ],
+          history: [...demoPayoutHistory].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+        };
       },
 
       async settlePayout(type, id) {
+        let amount, name;
         if (type === "restaurante") {
           const r = demoRestaurants.find((r) => r.id === id);
           if (!r || !r.balance) throw new Error("Essa conta não tem saldo disponível.");
-          const amount = Number(r.balance);
+          amount = Number(r.balance);
+          name = r.name;
           r.balance = 0;
-          delete demoPendingPayouts[type + ":" + id];
-          return { amount };
+        } else {
+          if (!profile || !profile.balance) throw new Error("Essa conta não tem saldo disponível.");
+          amount = Number(profile.balance);
+          name = profile.name || profile.email;
+          profile.balance = 0;
         }
-        if (!profile || !profile.balance) throw new Error("Essa conta não tem saldo disponível.");
-        const amount = Number(profile.balance);
-        profile.balance = 0;
         delete demoPendingPayouts[type + ":" + id];
+        demoPayoutHistory.push({
+          id: "payout-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+          type,
+          recipientId: id,
+          name,
+          amount,
+          status: "concluido",
+          createdAt: new Date().toISOString(),
+        });
         return { amount };
+      },
+
+      async undoPayout(payoutId) {
+        const entry = demoPayoutHistory.find((h) => h.id === payoutId);
+        if (!entry || entry.status !== "concluido") throw new Error("Esse pagamento já não está marcado como pago.");
+        if (entry.type === "restaurante") {
+          const r = demoRestaurants.find((r) => r.id === entry.recipientId);
+          if (r) r.balance = Number(r.balance || 0) + entry.amount;
+        } else if (profile && profile.id === entry.recipientId) {
+          profile.balance = Number(profile.balance || 0) + entry.amount;
+        }
+        entry.status = "estornado";
+        return { amount: entry.amount };
       },
 
       async getOrders(userId) {
