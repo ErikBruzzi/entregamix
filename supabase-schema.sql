@@ -1,5 +1,5 @@
 -- ============================================================
--- ENTREGAMIX — schema completo (pode rodar de novo com segurança
+-- MIX DELIVERY — schema completo (pode rodar de novo com segurança
 -- mesmo se você já rodou uma versão anterior deste arquivo)
 -- Rode em: Supabase > SQL Editor > New query > Run
 -- ============================================================

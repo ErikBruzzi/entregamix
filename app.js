@@ -630,7 +630,7 @@
 
   /* ---------------- INICIALIZAÇÃO ---------------- */
   function showFatalError(err) {
-    console.error("Falha ao iniciar o EntregaMix:", err);
+    console.error("Falha ao iniciar o Mix:", err);
     document.getElementById("app").innerHTML = `
       <div style="padding:24px; font-family:Inter,sans-serif;">
         <h2 style="color:#D6202A;">Não foi possível carregar o app</h2>

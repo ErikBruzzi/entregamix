@@ -1,4 +1,4 @@
-# EntregaMix
+# Mix Delivery
 
 App de delivery em HTML puro (sem framework, sem instalação), otimizado para
 navegadores mobile, pronto para hospedar no GitHub + Netlify conforme o

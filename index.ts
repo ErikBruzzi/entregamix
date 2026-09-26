@@ -1,13 +1,17 @@
-// Edge Function: create-payment-intent
+// Edge Function: create-mp-payment
 // ---------------------------------------------------------------
-// Recebe os dados do pedido, cria a cobrança no Stripe (o dinheiro vai
-// para a conta Stripe do PRÓPRIO aplicativo) e grava o pedido no banco
-// com payment_status = 'pendente'. Só depois que o Stripe confirmar o
-// pagamento de verdade (via stripe-webhook) é que o pedido passa a
-// "pago" e aparece de fato para o restaurante.
+// Recebe os dados do pedido + os dados de pagamento coletados pelo
+// "Payment Brick" do Mercado Pago no navegador do cliente, cria o pedido
+// no banco (ainda pendente) e processa a cobrança de verdade via API do
+// Mercado Pago (POST /v1/payments) — o dinheiro vai para a conta Mercado
+// Pago do PRÓPRIO aplicativo.
 //
-// Devolve { clientSecret, orderId } — o navegador usa o clientSecret
-// com o Stripe.js para coletar o cartão e confirmar o pagamento.
+// Para pagamento no cartão, o Mercado Pago normalmente já aprova na hora
+// (retornamos status "approved" e o front-end libera o pedido). Para PIX,
+// o pagamento fica "pending" até o cliente realmente pagar o QR code — o
+// pedido só passa a "pago" de verdade quando o mp-webhook confirmar.
+//
+// Devolve: { orderId, status, qrCode?, qrCodeBase64? }
 // ---------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -25,15 +29,11 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!STRIPE_SECRET_KEY) {
-      return jsonResponse({ error: "STRIPE_SECRET_KEY não configurada nesta função." }, 500);
-    }
+    const MP_ACCESS_TOKEN = Deno.env.get("MP_ACCESS_TOKEN");
+    if (!MP_ACCESS_TOKEN) return jsonResponse({ error: "MP_ACCESS_TOKEN não configurada nesta função." }, 500);
 
     const authHeader = req.headers.get("Authorization") || "";
     const userToken = authHeader.replace("Bearer ", "");
@@ -43,7 +43,6 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Descobre quem é o cliente a partir do token que ele mandou (se houver).
     let userId: string | null = null;
     if (userToken) {
       const { data: userData } = await supabase.auth.getUser(userToken);
@@ -52,16 +51,17 @@ Deno.serve(async (req) => {
 
     const {
       restaurantId,
-      items, // [{ id, name, price, quantity }]
+      items,
       address,
       deliveryCity,
       foodSubtotal,
       deliveryFee,
       deliveryDistanceKm,
       total,
+      formData, // vem do Payment Brick: { token?, payment_method_id, installments?, payer, ... }
     } = await req.json();
 
-    if (!restaurantId || !items?.length || !address || !total) {
+    if (!restaurantId || !items?.length || !address || !total || !formData) {
       return jsonResponse({ error: "Dados incompletos para criar o pagamento." }, 400);
     }
 
@@ -94,35 +94,47 @@ Deno.serve(async (req) => {
     const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
     if (itemsError) throw itemsError;
 
-    // 2) Cria a cobrança no Stripe, em centavos.
-    const amountInCents = Math.round(Number(total) * 100);
-    const params = new URLSearchParams();
-    params.set("amount", String(amountInCents));
-    params.set("currency", "brl");
-    params.set("metadata[order_id]", order.id);
-    params.append("automatic_payment_methods[enabled]", "true");
+    // 2) Processa o pagamento de verdade no Mercado Pago.
+    const paymentBody = {
+      ...formData,
+      transaction_amount: Number(total),
+      description: "Pedido Mix #" + order.id.slice(0, 8),
+      external_reference: order.id,
+      notification_url: Deno.env.get("SUPABASE_URL") + "/functions/v1/mp-webhook",
+    };
 
-    const stripeRes = await fetch("https://api.stripe.com/v1/payment_intents", {
+    const mpRes = await fetch("https://api.mercadopago.com/v1/payments", {
       method: "POST",
       headers: {
-        Authorization: "Bearer " + STRIPE_SECRET_KEY,
-        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: "Bearer " + MP_ACCESS_TOKEN,
+        "Content-Type": "application/json",
+        "X-Idempotency-Key": order.id,
       },
-      body: params.toString(),
+      body: JSON.stringify(paymentBody),
     });
-    const paymentIntent = await stripeRes.json();
-    if (!stripeRes.ok) {
-      throw new Error(paymentIntent?.error?.message || "Não foi possível criar a cobrança no Stripe.");
+    const payment = await mpRes.json();
+    if (!mpRes.ok) {
+      await supabase.from("orders").update({ payment_status: "falhou", status: "cancelado" }).eq("id", order.id);
+      throw new Error(payment?.message || "Não foi possível processar o pagamento.");
     }
 
-    // Guarda o id do PaymentIntent no pedido, para o webhook conseguir achar
-    // este pedido de volta quando o pagamento for confirmado.
-    await supabase
-      .from("orders")
-      .update({ stripe_payment_intent_id: paymentIntent.id })
-      .eq("id", order.id);
+    await supabase.from("orders").update({ mp_payment_id: String(payment.id) }).eq("id", order.id);
 
-    return jsonResponse({ clientSecret: paymentIntent.client_secret, orderId: order.id });
+    // Se o Mercado Pago já aprovou na hora (comum em cartão), atualiza direto
+    // — mas o webhook é sempre a fonte de verdade final, isso é só para o
+    // cliente não precisar esperar a confirmação assíncrona nesse caso comum.
+    if (payment.status === "approved") {
+      await supabase.from("orders").update({ payment_status: "pago", status: "recebido" }).eq("id", order.id);
+    }
+
+    const pixData = payment.point_of_interaction?.transaction_data;
+
+    return jsonResponse({
+      orderId: order.id,
+      status: payment.status, // approved | pending | in_process | rejected
+      qrCode: pixData?.qr_code,
+      qrCodeBase64: pixData?.qr_code_base64,
+    });
   } catch (err) {
     return jsonResponse({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
