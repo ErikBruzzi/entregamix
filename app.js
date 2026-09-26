@@ -167,7 +167,7 @@
           <div class="name">${r.name}</div>
           <div class="meta">
             <span class="chip">${r.category || "Variado"}</span>
-            <span>${r.etaMinutes} min · Entrega a partir de R$ ${Number(r.deliveryBaseFee).toFixed(2).replace(".", ",")}</span>
+            <span>${r.etaMinutes} min</span>
           </div>
         </div>
       </div>`

@@ -25,10 +25,11 @@
     - updateProfile(userId, data)                      -> { profile }
 
     Cliente:
-    - getRestaurants()                                 -> [{ id, name, category, etaMinutes, deliveryBaseFee }]
-      deliveryBaseFee vem de platform_settings — é a mesma pra todo
-      restaurante (a taxa de entrega não é mais definida pelo restaurante,
-      veja calculateDeliveryFee).
+    - getRestaurants()                                 -> [{ id, name, category, etaMinutes }]
+      Não inclui nenhuma taxa de entrega estimada de propósito — o cliente
+      só vê o valor real, calculado por endereço, no checkout (veja
+      calculateDeliveryFee). Evita mostrar um "a partir de" que não é o
+      preço que a pessoa vai pagar de fato.
     - calculateDeliveryFee(restaurantId, address)      -> { distanceKm, durationMin, fee }  (usa a Edge Function + LocationIQ; a taxa é sempre a da plataforma, igual pra qualquer restaurante — só a distância muda o valor)
     - getMenu(restaurantId)                            -> [{ id, name, description, price, imageUrl }]
     - createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) -> { order }
@@ -244,24 +245,20 @@
 
       /* ---------- CLIENTE ---------- */
       async getRestaurants() {
-        // A taxa base de entrega é a mesma pra todo mundo (definida pela
-        // plataforma, não por cada restaurante — veja calculateDeliveryFee),
-        // então busca uma vez só e usa pra montar o "a partir de R$X" de
-        // cada card.
-        const [{ data, error }, { data: settings, error: settingsError }] = await Promise.all([
-          client.from("restaurants").select("id, name, category, city, eta_minutes, image_url").eq("active", true),
-          client.from("platform_settings").select("delivery_base_fee").eq("id", true).single(),
-        ]);
+        // Não devolve mais nenhuma "taxa a partir de": o cliente só vê o
+        // valor real do frete (calculado por endereço) no checkout, depois
+        // de informar onde a entrega será feita — veja calculateDeliveryFee.
+        const { data, error } = await client
+          .from("restaurants")
+          .select("id, name, category, city, eta_minutes, image_url")
+          .eq("active", true);
         if (error) throw error;
-        if (settingsError) throw settingsError;
-        const baseFee = Number(settings?.delivery_base_fee ?? 5);
         return (data || []).map((r) => ({
           id: r.id,
           name: r.name,
           category: r.category,
           city: r.city,
           etaMinutes: r.eta_minutes,
-          deliveryBaseFee: baseFee,
           imageUrl: r.image_url,
         }));
       },
@@ -906,9 +903,7 @@
       },
 
       async getRestaurants() {
-        return demoRestaurants
-          .filter((r) => r.active)
-          .map((r) => ({ ...r, deliveryBaseFee: PLATFORM_DELIVERY_BASE_FEE }));
+        return demoRestaurants.filter((r) => r.active);
       },
       async calculateDeliveryFee(_restaurantId, address, _city) {
         // Sem Google Maps no modo demo: gera uma distância plausível a
