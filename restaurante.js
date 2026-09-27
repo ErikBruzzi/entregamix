@@ -209,7 +209,7 @@
             ${
               it.imageUrl
                 ? `<img class="item-thumb" src="${it.imageUrl}" alt="${it.name}" />`
-                : `<div class="item-thumb-placeholder">🍽️</div>`
+                : `<div class="item-thumb-placeholder"><span class="icon-mask icon-placeholder"></span></div>`
             }
             <div>
               <span class="name">${it.name}</span>
@@ -335,7 +335,7 @@
           <div class="order-items">Entregar em: ${o.address}</div>
           <div class="order-actions" data-id="${o.id}">${actions}</div>
           <div class="order-actions">
-            <button class="chat-btn" data-chat-order="${o.id}">💬 Chat com o cliente</button>
+            <button class="chat-btn" data-chat-order="${o.id}"><span class="icon-mask icon-chat"></span> Chat com o cliente</button>
           </div>
         </div>`;
       })

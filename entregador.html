@@ -76,7 +76,15 @@
   .profile-box { background:var(--surface); border-radius:12px; padding:16px; margin-bottom:20px; }
 
   /* Chat */
-  .chat-btn { background:var(--surface); color:var(--ink); font-weight:600; font-size:13px; padding:8px 12px; border-radius:10px; width:100%; margin-top:10px; }
+  .chat-btn { background:var(--surface); color:var(--ink); font-weight:600; font-size:13px; padding:8px 12px; border-radius:10px; width:100%; margin-top:10px; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+  .icon-mask {
+    display: inline-block; background-color: currentColor;
+    -webkit-mask-size: contain; mask-size: contain;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    -webkit-mask-position: center; mask-position: center;
+    flex-shrink: 0;
+  }
+  .icon-chat { width: 16px; height: 16px; -webkit-mask-image: url('icons/icon-chat.png'); mask-image: url('icons/icon-chat.png'); }
   .chat-overlay { position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:100; display:none; align-items:flex-end; justify-content:center; }
   .chat-overlay.active { display:flex; }
   .chat-panel { background:#fff; width:100%; max-width:520px; height:78vh; border-radius:20px 20px 0 0; display:flex; flex-direction:column; overflow:hidden; }

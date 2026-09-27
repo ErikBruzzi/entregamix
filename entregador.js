@@ -180,7 +180,7 @@
         </div>
         ${d.status !== "entregue" ? `<div class="code-box">Código de retirada<strong>${d.pickupCode}</strong></div>` : ""}
         ${action}
-        <button class="chat-btn" data-chat-order="${d.id}">💬 Chat com o cliente</button>
+        <button class="chat-btn" data-chat-order="${d.id}"><span class="icon-mask icon-chat"></span> Chat com o cliente</button>
       </div>`;
     }
 

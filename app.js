@@ -243,7 +243,7 @@
         ${
           it.imageUrl
             ? `<img class="item-thumb" src="${it.imageUrl}" alt="${it.name}" />`
-            : `<div class="item-thumb-placeholder">🍽️</div>`
+            : `<div class="item-thumb-placeholder"><span class="icon-mask icon-placeholder"></span></div>`
         }
         <div class="info">
           <div class="name">${it.name}</div>
@@ -595,8 +595,8 @@
             <span>R$ ${Number(o.total).toFixed(2).replace(".", ",")}</span>
           </div>
           <div>
-            <button class="chat-btn" data-chat-order="${o.id}" data-chat-channel="restaurante" data-chat-title="Chat com ${o.restaurantName}">💬 Falar com o restaurante</button>
-            ${o.courierId ? `<button class="chat-btn" data-chat-order="${o.id}" data-chat-channel="entregador" data-chat-title="Chat com o entregador">💬 Falar com o entregador</button>` : ""}
+            <button class="chat-btn" data-chat-order="${o.id}" data-chat-channel="restaurante" data-chat-title="Chat com ${o.restaurantName}"><span class="icon-mask icon-chat"></span> Falar com o restaurante</button>
+            ${o.courierId ? `<button class="chat-btn" data-chat-order="${o.id}" data-chat-channel="entregador" data-chat-title="Chat com o entregador"><span class="icon-mask icon-chat"></span> Falar com o entregador</button>` : ""}
             ${o.paymentStatus === "pago" ? `<a class="chat-btn" href="recibo.html?order=${o.id}" target="_blank" rel="noopener" style="text-decoration:none; display:inline-block;">🧾 Ver comprovante</a>` : ""}
           </div>
         </div>`;
