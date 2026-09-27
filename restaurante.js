@@ -98,6 +98,10 @@
     $("settHasHours").checked = hasHours;
     $("settOpenTime").value = myRestaurant.openingTime || "";
     $("settCloseTime").value = myRestaurant.closingTime || "";
+    const openDays = Array.isArray(myRestaurant.openDays) ? myRestaurant.openDays : null;
+    document.querySelectorAll(".settDay").forEach((cb) => {
+      cb.checked = openDays ? openDays.includes(Number(cb.value)) : true; // sem restrição = todos marcados
+    });
     toggleHoursFields(hasHours);
     renderRestaurantIcon();
   }
@@ -105,6 +109,7 @@
   function toggleHoursFields(show) {
     $("settHoursRow").style.display = show ? "flex" : "none";
     $("settHoursHint").style.display = show ? "block" : "none";
+    $("settDaysBox").style.display = show ? "block" : "none";
     $("settOpenTime").required = show;
     $("settCloseTime").required = show;
   }
@@ -155,6 +160,11 @@
         alert("Informe o horário de abertura e de fechamento, ou desligue a opção de definir horário.");
         return;
       }
+      const checkedDays = Array.from(document.querySelectorAll(".settDay:checked")).map((cb) => Number(cb.value));
+      if (hasHours && checkedDays.length === 0) {
+        alert("Selecione ao menos um dia da semana em que o restaurante funciona.");
+        return;
+      }
       const updates = {
         name: $("settName").value.trim(),
         category: $("settCategory").value.trim(),
@@ -164,6 +174,9 @@
         active: $("settActive").checked,
         openingTime: hasHours ? $("settOpenTime").value : null,
         closingTime: hasHours ? $("settCloseTime").value : null,
+        // Todos os 7 dias marcados equivale a "sem restrição de dia" (null) —
+        // simplifica a leitura no app do cliente e no servidor.
+        openDays: hasHours && checkedDays.length < 7 ? checkedDays.sort() : null,
       };
       const { restaurant } = await window.DB.updateMyRestaurant(myRestaurant.id, updates);
       myRestaurant = { ...myRestaurant, ...updates, id: restaurant.id };

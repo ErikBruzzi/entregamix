@@ -91,6 +91,8 @@
   .login-gate { padding:60px 20px; text-align:center; }
   .login-gate .field { text-align:left; max-width:320px; margin:0 auto 14px; }
   .toggle-row { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .day-check { display:inline-flex; align-items:center; gap:5px; font-size:13px; background:var(--surface); padding:8px 10px; border-radius:10px; cursor:pointer; }
+  .day-check input { width:auto; margin:0; }
 
   /* Chat */
   .chat-btn { background:var(--surface); color:var(--ink); font-weight:600; font-size:13px; padding:8px 12px; border-radius:10px; }
@@ -177,6 +179,18 @@
         <p style="font-size:12px; color:var(--ink-soft); margin-top:-8px; margin-bottom:14px; display:none;" id="settHoursHint">
           Se o horário de fechamento for menor que o de abertura, entendemos que o funcionamento cruza a meia-noite (ex: 18:00 até 02:00).
         </p>
+        <div id="settDaysBox" style="display:none; margin-bottom:14px;">
+          <label style="display:block; font-size:13px; font-weight:600; margin-bottom:8px; color:var(--ink-soft);">Dias em que funciona</label>
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            <label class="day-check"><input type="checkbox" class="settDay" value="0" /> Dom</label>
+            <label class="day-check"><input type="checkbox" class="settDay" value="1" /> Seg</label>
+            <label class="day-check"><input type="checkbox" class="settDay" value="2" /> Ter</label>
+            <label class="day-check"><input type="checkbox" class="settDay" value="3" /> Qua</label>
+            <label class="day-check"><input type="checkbox" class="settDay" value="4" /> Qui</label>
+            <label class="day-check"><input type="checkbox" class="settDay" value="5" /> Sex</label>
+            <label class="day-check"><input type="checkbox" class="settDay" value="6" /> Sáb</label>
+          </div>
+        </div>
 
         <div class="toggle-row">
           <input type="checkbox" id="settActive" style="width:18px; height:18px;" />

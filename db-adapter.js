@@ -25,15 +25,17 @@
     - updateProfile(userId, data)                      -> { profile }
 
     Cliente:
-    - getRestaurants()                                 -> [{ id, name, category, etaMinutes, openingTime, closingTime }]
+    - getRestaurants()                                 -> [{ id, name, category, etaMinutes, openingTime, closingTime, openDays }]
       Não inclui nenhuma taxa de entrega estimada de propósito — o cliente
       só vê o valor real, calculado por endereço, no checkout (veja
       calculateDeliveryFee). Evita mostrar um "a partir de" que não é o
       preço que a pessoa vai pagar de fato.
       openingTime/closingTime são "HH:MM" ou null (null nos dois = sempre
-      aberto). Usados pelo app.js pra bloquear pedido fora do horário —
-      mas a checagem que realmente vale é a da createMpPayment no
-      servidor, isso aqui é só pra UX (mostrar "Fechado no momento").
+      aberto). openDays é um array de números (0=Domingo..6=Sábado) ou
+      null (null = todos os dias). Usados pelo app.js pra mostrar
+      Aberto/Fechado e bloquear pedido fora do horário/dia — mas a
+      checagem que realmente vale é a da createMpPayment no servidor,
+      isso aqui é só pra UX.
     - calculateDeliveryFee(restaurantId, address)      -> { distanceKm, durationMin, fee }  (usa a Edge Function + LocationIQ; a taxa é sempre a da plataforma, igual pra qualquer restaurante — só a distância muda o valor)
     - getMenu(restaurantId)                            -> [{ id, name, description, price, imageUrl }]
     - createOrder({ restaurantId, items, address, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) -> { order }
@@ -48,12 +50,14 @@
     - getOrders(userId)                                -> [{ id, restaurantName, status, total, foodSubtotal, deliveryFee, createdAt, items, courierId }]
 
     Restaurante (dono):
-    - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryBaseFee, deliveryPricePerKm, active, balance, pixKey, pixKeyType, pixOwnerDocument, openingTime, closingTime }
+    - getMyRestaurant(ownerId)                         -> { id, name, category, address, etaMinutes, deliveryBaseFee, deliveryPricePerKm, active, balance, pixKey, pixKeyType, pixOwnerDocument, openingTime, closingTime, openDays }
       deliveryBaseFee/deliveryPricePerKm aqui são só informativos (vêm de
       platform_settings) — o restaurante não pode alterá-los.
       openingTime/closingTime são "HH:MM" ou null/null (sempre aberto). Se
-      closingTime < openingTime, o horário cruza a meia-noite.
-    - updateMyRestaurant(restaurantId, data)           -> { restaurant }  (data pode incluir name, category, address, city, etaMinutes, active, pixKey, pixKeyType, pixOwnerDocument, imageUrl, openingTime, closingTime — NÃO aceita mais deliveryBaseFee/deliveryPricePerKm, a taxa de entrega é definida pela plataforma)
+      closingTime < openingTime, o horário cruza a meia-noite. openDays é
+      array de 0(Dom)-6(Sáb) ou null (todos os dias); só é considerado
+      quando openingTime/closingTime também estão definidos.
+    - updateMyRestaurant(restaurantId, data)           -> { restaurant }  (data pode incluir name, category, address, city, etaMinutes, active, pixKey, pixKeyType, pixOwnerDocument, imageUrl, openingTime, closingTime, openDays — NÃO aceita mais deliveryBaseFee/deliveryPricePerKm, a taxa de entrega é definida pela plataforma)
     - getMyMenu(restaurantId)                          -> [{ id, name, description, price, available, imageUrl }]
     - createMenuItem(restaurantId, data)               -> { item }  (data pode incluir imageUrl)
     - updateMenuItem(itemId, data)                     -> { item }
@@ -256,7 +260,7 @@
         // de informar onde a entrega será feita — veja calculateDeliveryFee.
         const { data, error } = await client
           .from("restaurants")
-          .select("id, name, category, city, eta_minutes, image_url, opening_time, closing_time")
+          .select("id, name, category, city, eta_minutes, image_url, opening_time, closing_time, open_days")
           .eq("active", true);
         if (error) throw error;
         return (data || []).map((r) => ({
@@ -268,6 +272,7 @@
           imageUrl: r.image_url,
           openingTime: r.opening_time,
           closingTime: r.closing_time,
+          openDays: r.open_days,
         }));
       },
 
@@ -514,7 +519,7 @@
         const [{ data, error }, { data: settings, error: settingsError }] = await Promise.all([
           client
             .from("restaurants")
-            .select("id, name, category, address, city, eta_minutes, active, balance, pix_key, pix_key_type, pix_owner_document, image_url, opening_time, closing_time")
+            .select("id, name, category, address, city, eta_minutes, active, balance, pix_key, pix_key_type, pix_owner_document, image_url, opening_time, closing_time, open_days")
             .eq("owner_id", ownerId)
             .maybeSingle(),
           client.from("platform_settings").select("delivery_base_fee, delivery_price_per_km").eq("id", true).single(),
@@ -544,6 +549,8 @@
           // casar com <input type="time">). NULL/NULL = sempre aberto.
           openingTime: data.opening_time ? data.opening_time.slice(0, 5) : null,
           closingTime: data.closing_time ? data.closing_time.slice(0, 5) : null,
+          // Dias da semana em que funciona (0=Domingo..6=Sábado). NULL = todos.
+          openDays: data.open_days,
         };
       },
 
@@ -570,6 +577,7 @@
         // platform_settings), não por cada restaurante.
         if (updates.openingTime !== undefined) payload.opening_time = updates.openingTime || null;
         if (updates.closingTime !== undefined) payload.closing_time = updates.closingTime || null;
+        if (updates.openDays !== undefined) payload.open_days = updates.openDays || null;
         if (updates.active !== undefined) payload.active = updates.active;
         if (updates.pixKey !== undefined) payload.pix_key = updates.pixKey;
         if (updates.pixKeyType !== undefined) payload.pix_key_type = updates.pixKeyType;

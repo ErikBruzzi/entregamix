@@ -150,15 +150,20 @@
   // (ex: 18:00 às 02:00). Isso é só uma conveniência de UX pro cliente não
   // nem tentar pedir fora do horário — quem garante de verdade é a checagem
   // equivalente que a Edge Function create-mp-payment faz no servidor.
+  const WEEKDAY_NAMES = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+
   function isRestaurantOpen(r) {
     if (!r || !r.openingTime || !r.closingTime) return true;
     const now = new Date();
+    if (Array.isArray(r.openDays) && r.openDays.length && !r.openDays.includes(now.getDay())) {
+      return false; // fechado hoje, nem olha o horário
+    }
     const [oh, om] = r.openingTime.split(":").map(Number);
     const [ch, cm] = r.closingTime.split(":").map(Number);
     const nowMin = now.getHours() * 60 + now.getMinutes();
     const openMin = oh * 60 + om;
     const closeMin = ch * 60 + cm;
-    if (openMin === closeMin) return true; // igual = 24h
+    if (openMin === closeMin) return true; // igual = 24h (no(s) dia(s) permitido(s))
     if (openMin < closeMin) {
       return nowMin >= openMin && nowMin < closeMin;
     }
@@ -168,7 +173,15 @@
 
   function formatHours(r) {
     if (!r || !r.openingTime || !r.closingTime) return "";
-    return `${r.openingTime} às ${r.closingTime}`;
+    const days =
+      Array.isArray(r.openDays) && r.openDays.length
+        ? r.openDays
+            .slice()
+            .sort()
+            .map((d) => WEEKDAY_NAMES[d].slice(0, 3))
+            .join(", ") + ", "
+        : "";
+    return `${days}${r.openingTime} às ${r.closingTime}`;
   }
 
   function renderRestaurants(filter) {
@@ -196,7 +209,7 @@
           <div class="meta">
             <span class="chip">${r.category || "Variado"}</span>
             <span>${r.etaMinutes} min</span>
-            ${open ? "" : `<span class="chip" style="background:#EEE; color:#777;">Fechado${formatHours(r) ? " · abre " + r.openingTime : ""}</span>`}
+            <span style="font-weight:700; color:${open ? "var(--green-dark)" : "var(--red-dark)"};">${open ? "Aberto" : "Fechado"}</span>
           </div>
         </div>
       </div>`;
