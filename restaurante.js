@@ -94,8 +94,24 @@
     $("settCity").value = myRestaurant.city || "";
     $("settEta").value = myRestaurant.etaMinutes || 30;
     $("settActive").checked = !!myRestaurant.active;
+    const hasHours = !!(myRestaurant.openingTime && myRestaurant.closingTime);
+    $("settHasHours").checked = hasHours;
+    $("settOpenTime").value = myRestaurant.openingTime || "";
+    $("settCloseTime").value = myRestaurant.closingTime || "";
+    toggleHoursFields(hasHours);
     renderRestaurantIcon();
   }
+
+  function toggleHoursFields(show) {
+    $("settHoursRow").style.display = show ? "flex" : "none";
+    $("settHoursHint").style.display = show ? "block" : "none";
+    $("settOpenTime").required = show;
+    $("settCloseTime").required = show;
+  }
+
+  $("settHasHours").addEventListener("change", () => {
+    toggleHoursFields($("settHasHours").checked);
+  });
 
   function renderRestaurantIcon() {
     const img = $("restaurantIconPreview");
@@ -134,6 +150,11 @@
   $("settingsForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
+      const hasHours = $("settHasHours").checked;
+      if (hasHours && (!$("settOpenTime").value || !$("settCloseTime").value)) {
+        alert("Informe o horário de abertura e de fechamento, ou desligue a opção de definir horário.");
+        return;
+      }
       const updates = {
         name: $("settName").value.trim(),
         category: $("settCategory").value.trim(),
@@ -141,6 +162,8 @@
         city: $("settCity").value.trim(),
         etaMinutes: parseInt($("settEta").value, 10),
         active: $("settActive").checked,
+        openingTime: hasHours ? $("settOpenTime").value : null,
+        closingTime: hasHours ? $("settCloseTime").value : null,
       };
       const { restaurant } = await window.DB.updateMyRestaurant(myRestaurant.id, updates);
       myRestaurant = { ...myRestaurant, ...updates, id: restaurant.id };

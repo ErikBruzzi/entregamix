@@ -144,6 +144,33 @@
     restaurants = await window.DB.getRestaurants();
   }
 
+  // Confere se o restaurante está dentro do horário de funcionamento que
+  // ele definiu no painel dele. openingTime/closingTime nulos = sempre
+  // aberto. Se closingTime < openingTime, o horário cruza a meia-noite
+  // (ex: 18:00 às 02:00). Isso é só uma conveniência de UX pro cliente não
+  // nem tentar pedir fora do horário — quem garante de verdade é a checagem
+  // equivalente que a Edge Function create-mp-payment faz no servidor.
+  function isRestaurantOpen(r) {
+    if (!r || !r.openingTime || !r.closingTime) return true;
+    const now = new Date();
+    const [oh, om] = r.openingTime.split(":").map(Number);
+    const [ch, cm] = r.closingTime.split(":").map(Number);
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const openMin = oh * 60 + om;
+    const closeMin = ch * 60 + cm;
+    if (openMin === closeMin) return true; // igual = 24h
+    if (openMin < closeMin) {
+      return nowMin >= openMin && nowMin < closeMin;
+    }
+    // cruza a meia-noite
+    return nowMin >= openMin || nowMin < closeMin;
+  }
+
+  function formatHours(r) {
+    if (!r || !r.openingTime || !r.closingTime) return "";
+    return `${r.openingTime} às ${r.closingTime}`;
+  }
+
   function renderRestaurants(filter) {
     const list = $("restaurantList");
     const term = (filter || $("searchInput").value || "").toLowerCase();
@@ -155,9 +182,10 @@
       return;
     }
     list.innerHTML = visible
-      .map(
-        (r) => `
-      <div class="restaurant-card" data-id="${r.id}">
+      .map((r) => {
+        const open = isRestaurantOpen(r);
+        return `
+      <div class="restaurant-card" data-id="${r.id}" style="${open ? "" : "opacity:.55;"}">
         ${
           r.imageUrl
             ? `<img class="restaurant-thumb" src="${r.imageUrl}" alt="${r.name}" style="object-fit:cover;" />`
@@ -168,10 +196,11 @@
           <div class="meta">
             <span class="chip">${r.category || "Variado"}</span>
             <span>${r.etaMinutes} min</span>
+            ${open ? "" : `<span class="chip" style="background:#EEE; color:#777;">Fechado${formatHours(r) ? " · abre " + r.openingTime : ""}</span>`}
           </div>
         </div>
-      </div>`
-      )
+      </div>`;
+      })
       .join("");
     list.querySelectorAll(".restaurant-card").forEach((card) => {
       card.addEventListener("click", () => openMenu(card.dataset.id));
@@ -183,6 +212,16 @@
     activeRestaurant = restaurants.find((r) => r.id === restaurantId);
     $("menuRestaurantName").textContent = activeRestaurant.name;
     $("menuRestaurantMeta").textContent = `${activeRestaurant.category || ""} · ${activeRestaurant.etaMinutes} min`;
+    const open = isRestaurantOpen(activeRestaurant);
+    const banner = $("menuClosedBanner");
+    if (open) {
+      banner.style.display = "none";
+    } else {
+      banner.style.display = "block";
+      banner.textContent = formatHours(activeRestaurant)
+        ? `Fechado no momento. Horário de funcionamento: ${formatHours(activeRestaurant)}.`
+        : "Fechado no momento.";
+    }
     const items = await window.DB.getMenu(restaurantId);
     $("menuList").innerHTML = items
       .map(
@@ -198,7 +237,7 @@
           ${it.description ? `<div class="desc">${it.description}</div>` : ""}
           <div class="price">R$ ${Number(it.price).toFixed(2).replace(".", ",")}</div>
         </div>
-        <button class="add-btn" data-id="${it.id}" data-name="${it.name}" data-price="${it.price}">+</button>
+        <button class="add-btn" data-id="${it.id}" data-name="${it.name}" data-price="${it.price}" ${open ? "" : "disabled"}>${open ? "+" : "—"}</button>
       </div>`
       )
       .join("");
@@ -394,6 +433,13 @@
     const address = $("checkoutAddress").value.trim();
     const city = $("checkoutCity").value.trim();
     if (!address || !city || !calculatedDelivery) return alert("Calcule o frete antes de confirmar.");
+    if (!isRestaurantOpen(activeRestaurant)) {
+      return alert(
+        "Esse restaurante fechou enquanto você montava o pedido" +
+          (formatHours(activeRestaurant) ? ` (horário de funcionamento: ${formatHours(activeRestaurant)})` : "") +
+          ". Não é possível concluir agora."
+      );
+    }
 
     if (!mp) {
       // Modo demonstração: não há Mercado Pago de verdade, o pedido já é

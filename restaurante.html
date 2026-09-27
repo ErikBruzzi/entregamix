@@ -162,6 +162,22 @@
         <p style="font-size:12px; color:var(--ink-soft); margin-top:-8px; margin-bottom:14px;">
           A taxa de entrega é definida pelo Mix (mesma regra para todos os restaurantes: um valor fixo + um valor por km até o endereço do cliente) — não é configurável por aqui, justamente para o frete nunca ficar injusto pro cliente.
         </p>
+
+        <div class="toggle-row">
+          <input type="checkbox" id="settHasHours" style="width:18px; height:18px;" />
+          <label for="settHasHours" style="font-size:14px;">Definir horário de funcionamento</label>
+        </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin-top:-10px; margin-bottom:14px;">
+          Se desligado, o restaurante fica aberto para pedidos o tempo todo (enquanto estiver "visível e recebendo pedidos" abaixo). Se ligado, o cliente só consegue fazer pedidos dentro do horário definido.
+        </p>
+        <div class="field-row" id="settHoursRow" style="display:none;">
+          <div class="field"><label>Abre às</label><input type="time" id="settOpenTime" /></div>
+          <div class="field"><label>Fecha às</label><input type="time" id="settCloseTime" /></div>
+        </div>
+        <p style="font-size:12px; color:var(--ink-soft); margin-top:-8px; margin-bottom:14px; display:none;" id="settHoursHint">
+          Se o horário de fechamento for menor que o de abertura, entendemos que o funcionamento cruza a meia-noite (ex: 18:00 até 02:00).
+        </p>
+
         <div class="toggle-row">
           <input type="checkbox" id="settActive" style="width:18px; height:18px;" />
           <label for="settActive" style="font-size:14px;">Restaurante visível e recebendo pedidos</label>
