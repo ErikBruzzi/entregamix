@@ -235,10 +235,11 @@
         ? `Fechado no momento. Horário de funcionamento: ${formatHours(activeRestaurant)}.`
         : "Fechado no momento.";
     }
-    const items = await window.DB.getMenu(restaurantId);
-    $("menuList").innerHTML = items
-      .map(
-        (it) => `
+    const [items, categories] = await Promise.all([
+      window.DB.getMenu(restaurantId),
+      window.DB.getMenuCategories(restaurantId),
+    ]);
+    const itemHtml = (it) => `
       <div class="menu-item">
         ${
           it.imageUrl
@@ -251,9 +252,33 @@
           <div class="price">R$ ${Number(it.price).toFixed(2).replace(".", ",")}</div>
         </div>
         <button class="add-btn" data-id="${it.id}" data-name="${it.name}" data-price="${it.price}" ${open ? "" : "disabled"}>${open ? "+" : "—"}</button>
-      </div>`
-      )
-      .join("");
+      </div>`;
+    // Agrupa por repartição, na ordem escolhida pelo restaurante. Repartições sem
+    // pratos disponíveis não aparecem; pratos sem repartição vão para "Outros" (no fim).
+    const groups = categories
+      .map((c) => ({ id: c.id, title: c.name, items: items.filter((it) => it.categoryId === c.id) }))
+      .filter((g) => g.items.length);
+    const known = new Set(categories.map((c) => c.id));
+    const loose = items.filter((it) => !it.categoryId || !known.has(it.categoryId));
+    if (loose.length) groups.push({ id: "outros", title: groups.length ? "Outros" : "", items: loose });
+    const nav =
+      groups.length > 1
+        ? `<div class="menu-cat-nav">${groups.map((g) => `<button type="button" class="menu-cat-chip" data-target="menu-cat-${g.id}">${escapeHtml(g.title)}</button>`).join("")}</div>`
+        : "";
+    $("menuList").innerHTML =
+      nav +
+      groups
+        .map(
+          (g) =>
+            `<div id="menu-cat-${g.id}">${g.title ? `<div class="menu-group-title">${escapeHtml(g.title)}</div>` : ""}${g.items.map(itemHtml).join("")}</div>`
+        )
+        .join("");
+    $("menuList").querySelectorAll(".menu-cat-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const el = document.getElementById(chip.dataset.target);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
     $("menuList").querySelectorAll(".add-btn").forEach((btn) => {
       btn.addEventListener("click", () => addToCart(btn.dataset));
     });

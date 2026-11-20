@@ -189,10 +189,87 @@
   });
 
   /* ---------------- CARDÁPIO ---------------- */
+  let myCategories = [];
+
   async function loadMenu() {
-    const items = await window.DB.getMyMenu(myRestaurant.id);
+    const [items, cats] = await Promise.all([
+      window.DB.getMyMenu(myRestaurant.id),
+      window.DB.getMenuCategories(myRestaurant.id),
+    ]);
+    myCategories = cats;
+    renderCategories(cats, items);
+    fillCategorySelect($("newItemCategory"), "");
     renderMenu(items);
   }
+
+  function fillCategorySelect(select, selectedId) {
+    select.innerHTML =
+      '<option value="">Sem repartição</option>' +
+      myCategories
+        .map((c) => `<option value="${c.id}" ${c.id === selectedId ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
+        .join("");
+  }
+
+  /* ---------------- REPARTIÇÕES DO CARDÁPIO ---------------- */
+  function renderCategories(cats, items) {
+    const box = $("categoryList");
+    if (!cats.length) {
+      box.innerHTML = '<div class="cat-hint" style="margin-top:10px;">Nenhuma repartição criada ainda. Os pratos aparecem todos juntos.</div>';
+      return;
+    }
+    box.innerHTML = cats
+      .map((c, i) => {
+        const n = items.filter((it) => it.categoryId === c.id).length;
+        return `<div class="cat-row" data-id="${c.id}">
+          <span class="cat-name">${escapeHtml(c.name)}</span>
+          <span class="cat-count">${n} ${n === 1 ? "prato" : "pratos"}</span>
+          <button type="button" data-act="up" ${i === 0 ? "disabled" : ""} title="Subir">↑</button>
+          <button type="button" data-act="down" ${i === cats.length - 1 ? "disabled" : ""} title="Descer">↓</button>
+          <button type="button" data-act="rename">Renomear</button>
+          <button type="button" data-act="delete" class="danger">Excluir</button>
+        </div>`;
+      })
+      .join("");
+    box.querySelectorAll(".cat-row").forEach((row) => {
+      const id = row.dataset.id;
+      const cat = cats.find((c) => c.id === id);
+      row.querySelector('[data-act="up"]').addEventListener("click", () => runCat(() => window.DB.moveMenuCategory(myRestaurant.id, id, -1)));
+      row.querySelector('[data-act="down"]').addEventListener("click", () => runCat(() => window.DB.moveMenuCategory(myRestaurant.id, id, 1)));
+      row.querySelector('[data-act="rename"]').addEventListener("click", () => {
+        const novo = prompt("Novo nome para a repartição:", cat.name);
+        if (novo === null) return;
+        runCat(() => window.DB.renameMenuCategory(id, novo));
+      });
+      row.querySelector('[data-act="delete"]').addEventListener("click", () => {
+        const n = items.filter((it) => it.categoryId === id).length;
+        const aviso = n
+          ? `Excluir a repartição "${cat.name}"? Os ${n} prato(s) dela NÃO serão apagados, só ficarão sem repartição.`
+          : `Excluir a repartição "${cat.name}"?`;
+        if (!confirm(aviso)) return;
+        runCat(() => window.DB.deleteMenuCategory(id));
+      });
+    });
+  }
+
+  async function runCat(fn) {
+    try {
+      await fn();
+      await loadMenu();
+    } catch (err) {
+      alert((err && err.message) || "Não foi possível concluir.");
+    }
+  }
+
+  $("addCategoryBtn").addEventListener("click", async () => {
+    const input = $("newCategoryName");
+    const name = input.value.trim();
+    if (!name) return alert("Digite o nome da repartição.");
+    await runCat(() => window.DB.createMenuCategory(myRestaurant.id, name));
+    input.value = "";
+  });
+  $("newCategoryName").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("addCategoryBtn").click(); }
+  });
 
   function renderMenu(items) {
     const list = $("menuList");
@@ -200,9 +277,13 @@
       list.innerHTML = '<div class="empty-state">Nenhum prato cadastrado ainda. Adicione o primeiro acima.</div>';
       return;
     }
-    list.innerHTML = items
-      .map(
-        (it) => `
+    // Agrupa os pratos por repartição (na ordem definida pelo restaurante).
+    // Pratos sem repartição (ou de uma repartição já excluída) ficam no fim, em "Sem repartição".
+    const validIds = new Set(myCategories.map((c) => c.id));
+    const groups = myCategories.map((c) => ({ title: c.name, items: items.filter((it) => it.categoryId === c.id) }));
+    const loose = items.filter((it) => !it.categoryId || !validIds.has(it.categoryId));
+    if (loose.length) groups.push({ title: myCategories.length ? "Sem repartição" : "", items: loose });
+    const cardHtml = (it) => `
       <div class="menu-item-card" data-id="${it.id}">
         <div class="row">
           <div class="item-info-row">
@@ -217,6 +298,14 @@
               ${it.description ? `<div class="desc">${it.description}</div>` : ""}
               <div><button class="photo-btn" data-action="photo">Trocar foto</button></div>
               <input type="file" accept="image/*" data-action="photo-input" style="display:none;" />
+              ${
+                myCategories.length
+                  ? `<div><select class="item-cat-select" data-action="category">
+                      <option value="" ${!it.categoryId ? "selected" : ""}>Sem repartição</option>
+                      ${myCategories.map((c) => `<option value="${c.id}" ${c.id === it.categoryId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+                    </select></div>`
+                  : ""
+              }
             </div>
           </div>
           <div class="price">R$ ${Number(it.price).toFixed(2).replace(".", ",")}</div>
@@ -226,13 +315,26 @@
           <button class="secondary-btn" data-action="edit-price">Editar preço</button>
           <button class="secondary-btn" data-action="delete" style="color:var(--red-dark);">Excluir</button>
         </div>
-      </div>`
-      )
+      </div>`;
+    list.innerHTML = groups
+      .filter((g) => g.items.length || g.title)
+      .map((g) => (g.title ? `<div class="menu-group-title">${escapeHtml(g.title)}</div>` : "") + (g.items.length ? g.items.map(cardHtml).join("") : '<div class="cat-hint">Nenhum prato nesta repartição ainda.</div>'))
       .join("");
 
     list.querySelectorAll(".menu-item-card").forEach((card) => {
       const id = card.dataset.id;
       const item = items.find((i) => i.id === id);
+      const catSelect = card.querySelector('[data-action="category"]');
+      if (catSelect) {
+        catSelect.addEventListener("change", async () => {
+          try {
+            await window.DB.updateMenuItem(id, { categoryId: catSelect.value || null });
+            loadMenu();
+          } catch (err) {
+            alert("Não foi possível mover o prato: " + ((err && err.message) || err));
+          }
+        });
+      }
       card.querySelector('[data-action="toggle"]').addEventListener("click", async () => {
         await window.DB.updateMenuItem(id, { available: !item.available });
         loadMenu();
@@ -278,7 +380,7 @@
     try {
       let imageUrl = null;
       if (file) imageUrl = await window.DB.uploadMenuImage(myRestaurant.id, file);
-      await window.DB.createMenuItem(myRestaurant.id, { name, description, price, imageUrl });
+      await window.DB.createMenuItem(myRestaurant.id, { name, description, price, imageUrl, categoryId: $("newItemCategory").value || null });
       $("newItemName").value = "";
       $("newItemDesc").value = "";
       $("newItemPrice").value = "";

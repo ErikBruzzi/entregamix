@@ -81,6 +81,20 @@
   .balance-value { font-size:32px; font-weight:800; margin-top:4px; font-family:'Sora',sans-serif; }
   .pix-status { font-size:13px; color:var(--ink-soft); margin-bottom:12px; }
   .menu-item-card .actions { display:flex; gap:8px; margin-top:10px; }
+  /* ---- Repartições do cardápio (painel do restaurante) ---- */
+  .cat-box { border:1px solid var(--line); border-radius:var(--radius); padding:14px; margin-bottom:18px; background:var(--surface); }
+  .cat-title { font-weight:700; font-size:15px; }
+  .cat-hint { font-size:12px; color:var(--ink-soft); margin:2px 0 10px; }
+  .cat-add { display:flex; gap:8px; }
+  .cat-add input { flex:1; min-width:0; }
+  .cat-row { display:flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-top:8px; }
+  .cat-row .cat-name { flex:1; font-weight:600; font-size:14px; min-width:0; overflow-wrap:anywhere; }
+  .cat-row .cat-count { font-size:12px; color:var(--ink-soft); white-space:nowrap; }
+  .cat-row button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:5px 9px; font-size:12px; cursor:pointer; font-family:inherit; }
+  .cat-row button:disabled { opacity:.35; cursor:default; }
+  .cat-row button.danger { color:var(--red-dark); }
+  .menu-group-title { font-size:16px; font-weight:800; margin:20px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--line); }
+  .item-cat-select { margin-top:8px; font-size:12px; padding:5px 8px; border:1px solid var(--line); border-radius:8px; font-family:inherit; background:#fff; max-width:100%; }
   .badge-unavailable { font-size:11px; background:#FFE3D6; color:var(--red-dark); padding:2px 8px; border-radius:20px; margin-left:8px; }
 
   .order-card { border:1px solid var(--line); border-radius:var(--radius); padding:14px; margin-bottom:12px; }
@@ -231,11 +245,27 @@
     </div>
 
     <div class="panel" id="panel-menu">
+      <!-- REPARTIÇÕES DO CARDÁPIO: o restaurante cria as seções com o nome que quiser
+           (ex.: Bebidas, Pizzas, Porções...) e depois escolhe em qual delas cada prato fica. -->
+      <div class="cat-box">
+        <div class="cat-title">Repartições do cardápio</div>
+        <div class="cat-hint">Crie as seções do seu cardápio com o nome que quiser. Ex.: Bebidas, Pizzas, Porções, Sobremesas.</div>
+        <div class="cat-add">
+          <input type="text" id="newCategoryName" maxlength="40" placeholder="Nome da repartição" />
+          <button class="secondary-btn" id="addCategoryBtn" type="button">Criar</button>
+        </div>
+        <div id="categoryList"></div>
+      </div>
+
       <div style="margin-bottom:18px;">
         <div class="field"><label>Nome do prato</label><input type="text" id="newItemName" /></div>
         <div class="field"><label>Descrição (opcional)</label><input type="text" id="newItemDesc" /></div>
         <div class="field-row">
           <div class="field"><label>Preço (R$)</label><input type="number" id="newItemPrice" min="0" step="0.01" /></div>
+        </div>
+        <div class="field">
+          <label>Repartição</label>
+          <select id="newItemCategory"><option value="">Sem repartição</option></select>
         </div>
         <div class="field">
           <label>Foto do prato (opcional)</label>

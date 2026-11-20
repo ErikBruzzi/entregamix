@@ -90,6 +90,13 @@
     padding: 14px 0; border-bottom: 1px solid var(--line);
   }
   .menu-item .info { flex: 1; }
+  /* ---- Repartições do cardápio (tela do cliente) ----
+     Os pratos aparecem agrupados pelas repartições que cada restaurante criou. */
+  .menu-group-title { font-size: 17px; font-weight: 800; margin: 22px 0 6px; padding-bottom: 6px; border-bottom: 2px solid var(--line); scroll-margin-top: 80px; } /* título de cada repartição (ex: "Bebidas") */
+  .menu-cat-nav { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; margin: 0 -2px; scrollbar-width: none; } /* faixa de botões que leva a cada repartição */
+  .menu-cat-nav::-webkit-scrollbar { display: none; }
+  .menu-cat-chip { flex: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 20px; padding: 7px 14px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; } /* botão "pílula" de cada repartição */
+  .menu-cat-chip:active { background: var(--red); color: #fff; border-color: var(--red); }
   .menu-item .info .name { font-weight: 600; font-size: 15px; }
   .menu-item .info .desc { font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
   .menu-item .price { font-weight: 700; font-size: 14px; color: var(--ink); white-space: nowrap; }

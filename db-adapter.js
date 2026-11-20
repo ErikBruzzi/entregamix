@@ -62,6 +62,11 @@
     - createMenuItem(restaurantId, data)               -> { item }  (data pode incluir imageUrl)
     - updateMenuItem(itemId, data)                     -> { item }
     - deleteMenuItem(itemId)                           -> void
+    - getMenuCategories(restaurantId)                  -> [{ id, name, position }]  (repartições do cardápio, em ordem)
+    - createMenuCategory(restaurantId, name)           -> { category }
+    - renameMenuCategory(categoryId, name)             -> { category }
+    - moveMenuCategory(restaurantId, categoryId, dir)  -> void   (dir: -1 sobe, +1 desce)
+    - deleteMenuCategory(categoryId)                   -> void   (os pratos ficam sem repartição)
     - uploadMenuImage(restaurantId, file)              -> url (string) — envie o resultado como imageUrl
     - getRestaurantOrders(restaurantId)                -> [{ id, status, total, createdAt, address, courierId, pickupCode, items }]
     - updateOrderStatus(orderId, status)               -> void
@@ -294,7 +299,7 @@
       async getMenu(restaurantId) {
         const { data, error } = await client
           .from("menu_items")
-          .select("id, name, description, price, image_url")
+          .select("id, name, description, price, image_url, category_id")
           .eq("restaurant_id", restaurantId)
           .eq("available", true);
         if (error) throw error;
@@ -304,7 +309,19 @@
           description: it.description,
           price: it.price,
           imageUrl: it.image_url,
+          categoryId: it.category_id,
         }));
+      },
+
+      async getMenuCategories(restaurantId) {
+        const { data, error } = await client
+          .from("menu_categories")
+          .select("id, name, position")
+          .eq("restaurant_id", restaurantId)
+          .order("position", { ascending: true })
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        return data || [];
       },
 
       async createOrder({ restaurantId, items, address, deliveryCity, foodSubtotal, deliveryFee, deliveryDistanceKm, total }) {
@@ -596,7 +613,7 @@
       async getMyMenu(restaurantId) {
         const { data, error } = await client
           .from("menu_items")
-          .select("id, name, description, price, available, image_url")
+          .select("id, name, description, price, available, image_url, category_id")
           .eq("restaurant_id", restaurantId)
           .order("created_at", { ascending: true });
         if (error) throw error;
@@ -607,6 +624,7 @@
           price: it.price,
           available: it.available,
           imageUrl: it.image_url,
+          categoryId: it.category_id,
         }));
       },
 
@@ -620,11 +638,12 @@
             price: item.price,
             available: item.available !== false,
             image_url: item.imageUrl || null,
+            category_id: item.categoryId || null,
           })
           .select()
           .single();
         if (error) throw error;
-        return { item: { ...data, imageUrl: data.image_url } };
+        return { item: { ...data, imageUrl: data.image_url, categoryId: data.category_id } };
       },
 
       async updateMenuItem(itemId, updates) {
@@ -633,6 +652,10 @@
           payload.image_url = payload.imageUrl;
           delete payload.imageUrl;
         }
+        if (payload.categoryId !== undefined) {
+          payload.category_id = payload.categoryId || null;
+          delete payload.categoryId;
+        }
         const { data, error } = await client
           .from("menu_items")
           .update(payload)
@@ -640,11 +663,67 @@
           .select()
           .single();
         if (error) throw error;
-        return { item: { ...data, imageUrl: data.image_url } };
+        return { item: { ...data, imageUrl: data.image_url, categoryId: data.category_id } };
       },
 
       async deleteMenuItem(itemId) {
         const { error } = await client.from("menu_items").delete().eq("id", itemId);
+        if (error) throw error;
+      },
+
+      async createMenuCategory(restaurantId, name) {
+        const clean = String(name || "").trim();
+        if (!clean) throw new Error("Digite o nome da repartição.");
+        const { data: last } = await client
+          .from("menu_categories")
+          .select("position")
+          .eq("restaurant_id", restaurantId)
+          .order("position", { ascending: false })
+          .limit(1);
+        const position = last && last.length ? last[0].position + 1 : 0;
+        const { data, error } = await client
+          .from("menu_categories")
+          .insert({ restaurant_id: restaurantId, name: clean, position })
+          .select()
+          .single();
+        if (error) {
+          if (error.code === "23505") throw new Error("Você já tem uma repartição com esse nome.");
+          throw error;
+        }
+        return { category: data };
+      },
+
+      async renameMenuCategory(categoryId, name) {
+        const clean = String(name || "").trim();
+        if (!clean) throw new Error("Digite o nome da repartição.");
+        const { data, error } = await client
+          .from("menu_categories")
+          .update({ name: clean })
+          .eq("id", categoryId)
+          .select()
+          .single();
+        if (error) {
+          if (error.code === "23505") throw new Error("Você já tem uma repartição com esse nome.");
+          throw error;
+        }
+        return { category: data };
+      },
+
+      // Sobe (-1) ou desce (+1) uma repartição: reescreve a posição de todas, em sequência.
+      async moveMenuCategory(restaurantId, categoryId, dir) {
+        const list = await this.getMenuCategories(restaurantId);
+        const i = list.findIndex((c) => c.id === categoryId);
+        const j = i + dir;
+        if (i < 0 || j < 0 || j >= list.length) return;
+        [list[i], list[j]] = [list[j], list[i]];
+        for (let k = 0; k < list.length; k++) {
+          const { error } = await client.from("menu_categories").update({ position: k }).eq("id", list[k].id);
+          if (error) throw error;
+        }
+      },
+
+      async deleteMenuCategory(categoryId) {
+        const { error } = await client.from("menu_categories").delete().eq("id", categoryId);
         if (error) throw error;
       },
 
@@ -856,6 +935,7 @@
         { id: "m3", restaurantId: "r2", name: "Pizza Margherita", description: "Molho, muçarela e manjericão", price: 44.0, available: true },
       ],
     };
+    const demoCategories = {};
     let currentUser = null;
     let profile = null;
     const orders = [];
@@ -1076,6 +1156,44 @@
       },
       async getMyMenu(restaurantId) {
         return demoMenus[restaurantId] || [];
+      },
+      async getMenuCategories(restaurantId) {
+        return (demoCategories[restaurantId] || []).slice().sort((a, b) => a.position - b.position);
+      },
+      async createMenuCategory(restaurantId, name) {
+        const clean = String(name || "").trim();
+        if (!clean) throw new Error("Digite o nome da repartição.");
+        const list = (demoCategories[restaurantId] = demoCategories[restaurantId] || []);
+        if (list.some((c) => c.name.toLowerCase() === clean.toLowerCase())) throw new Error("Você já tem uma repartição com esse nome.");
+        const category = { id: "c" + idCounter++, name: clean, position: list.length };
+        list.push(category);
+        return { category };
+      },
+      async renameMenuCategory(categoryId, name) {
+        const clean = String(name || "").trim();
+        if (!clean) throw new Error("Digite o nome da repartição.");
+        for (const key in demoCategories) {
+          const c = demoCategories[key].find((x) => x.id === categoryId);
+          if (c) {
+            if (demoCategories[key].some((x) => x !== c && x.name.toLowerCase() === clean.toLowerCase())) throw new Error("Você já tem uma repartição com esse nome.");
+            c.name = clean;
+            return { category: c };
+          }
+        }
+      },
+      async moveMenuCategory(restaurantId, categoryId, dir) {
+        const list = (demoCategories[restaurantId] || []).slice().sort((a, b) => a.position - b.position);
+        const i = list.findIndex((c) => c.id === categoryId);
+        const j = i + dir;
+        if (i < 0 || j < 0 || j >= list.length) return;
+        [list[i], list[j]] = [list[j], list[i]];
+        list.forEach((c, k) => (c.position = k));
+      },
+      async deleteMenuCategory(categoryId) {
+        for (const key in demoCategories) {
+          demoCategories[key] = demoCategories[key].filter((c) => c.id !== categoryId);
+        }
+        for (const key in demoMenus) demoMenus[key].forEach((m) => { if (m.categoryId === categoryId) m.categoryId = null; });
       },
       async createMenuItem(restaurantId, item) {
         const newItem = { id: "m" + idCounter++, restaurantId, available: true, ...item };
